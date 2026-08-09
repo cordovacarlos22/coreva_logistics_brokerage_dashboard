@@ -1,0 +1,112 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Coreva-specific tokens shadcn's semantic set doesn't cover -- everything
+   else (primary/secondary/border/etc.) is unified below in :root so our
+   hand-rolled components and shadcn's both read from the same values. */
+@theme {
+  --color-primary-dark: #000a1e;
+  --color-surface: #f8fafc;
+  --color-text: #0f172a;
+
+  --color-status-assigned: #64748b;
+  --color-status-picked-up: #002147;
+  --color-status-in-transit: #2563eb;
+  --color-status-delivered: #16a34a;
+  --color-status-dropped: #dc2626;
+
+  --font-mono: "JetBrains Mono", monospace;
+
+  --radius-badge: 0.5rem;
+}
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
+/* Coreva navy/orange, mapped into shadcn's semantic slots -- this is the
+   single source of truth both systems read from, not two parallel themes. */
+:root {
+  --font-sans: Inter, sans-serif;
+  --radius: 0.25rem;
+
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --primary: #002147;
+  --primary-foreground: #ffffff;
+  --secondary: #ff8c00;
+  --secondary-foreground: #ffffff;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #f1f5f9;
+  --accent-foreground: #002147;
+  --destructive: #dc2626;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #002147;
+}
+
+.dark {
+  --background: #0f172a;
+  --foreground: #f8fafc;
+  --card: #1e293b;
+  --card-foreground: #f8fafc;
+  --popover: #1e293b;
+  --popover-foreground: #f8fafc;
+  --primary: #aec7f6;
+  --primary-foreground: #001b3d;
+  --secondary: #ff8c00;
+  --secondary-foreground: #2f1500;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --accent: #1e293b;
+  --accent-foreground: #f8fafc;
+  --destructive: #ef4444;
+  --border: rgba(255, 255, 255, 0.1);
+  --input: rgba(255, 255, 255, 0.15);
+  --ring: #aec7f6;
+}
+
+body {
+  @apply bg-surface text-text font-sans;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "coreva-logistics-brokerage-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,server -c blue,green \"npm run dev -w apps/web\" \"npm run dev -w apps/server\"",
+    "dev:web": "npm run dev -w apps/web",
+    "dev:server": "npm run dev -w apps/server",
+    "build": "npm run build -w apps/web",
+    "test": "npm test -w apps/server && npm test -w apps/web",
+    "lint": "npm run lint -w apps/server && npm run lint -w apps/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

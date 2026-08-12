@@ -132,6 +132,12 @@ create table public.checklists (
   sealed_at timestamptz,
   locked_at timestamptz,
   signed_at timestamptz,
+  -- Enforces the "one row per driver per load" comment above -- without
+  -- this, a client-side check-then-insert race (e.g. re-entering the
+  -- checklist screen before the first row finishes being created) can
+  -- create two rows for the same load+driver, which then breaks every
+  -- .single()/.maybeSingle() query against that pair permanently.
+  unique (load_id, driver_id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

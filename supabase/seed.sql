@@ -39,32 +39,40 @@ on conflict (trailer_number) do update set
 -- future since it hasn't been picked up yet.
 insert into public.loads
   (load_number, status, trailer_id, truck_id, customer_company, origin_address, destination_address,
-   pickup_appointment_at, updated_at, bol_trailer_number, bol_mfo, bol_po_number, bol_seal_number)
+   pickup_appointment_at, updated_at, bol_trailer_number, bol_mfo, bol_po_number, bol_seal_number,
+   commodity, unit_count, packaging_type, weight_lbs, total_distance_miles, deadhead_miles)
 select
   v.load_number, v.status::public.load_status,
   (select id from public.trailers where trailer_number = v.trailer_number),
   (select id from public.trucks where unit_number = v.truck_number),
   'International Paper', v.origin_address, v.destination_address,
-  v.pickup_appointment_at, v.updated_at, v.bol_trailer_number, v.bol_mfo, v.bol_po_number, v.bol_seal_number
+  v.pickup_appointment_at, v.updated_at, v.bol_trailer_number, v.bol_mfo, v.bol_po_number, v.bol_seal_number,
+  v.commodity, v.unit_count, v.packaging_type, v.weight_lbs, v.total_distance_miles, v.deadhead_miles
 from (
   values
     ('IP-8842-A', 'in_transit', 'TR-8492A', 'TRK-294', 'Memphis, TN', 'Chicago, IL',
       now() - interval '3 hours', now() - interval '10 minutes',
-      'TR-8492A', 'MFO-48213', 'PO-2026-77410', 'SL-90214'),
+      'TR-8492A', 'MFO-48213', 'PO-2026-77410', 'SL-90214',
+      'Kraft Paper Rolls', 48, 'Rolls', 44200, 530, 12),
     ('IP-8843-B', 'picked_up', 'TR-1102B', 'TRK-118', 'Atlanta, GA', 'Dallas, TX',
       now() - interval '2 hours', now() - interval '1 hour',
-      'TR-1102B', 'MFO-52290', 'PO-2026-77522', 'SL-90335'),
+      'TR-1102B', 'MFO-52290', 'PO-2026-77522', 'SL-90335',
+      'Corrugated Sheets', 26, 'Pallets', 42500, 781, 5),
     ('IP-8839-C', 'delivered', 'TR-9934C', null, 'Seattle, WA', 'Portland, OR',
       now() - interval '5 hours', now() - interval '2 hours',
-      'TR-9934C', 'MFO-33187', 'PO-2026-77198', 'SL-90109'),
+      'TR-9934C', 'MFO-33187', 'PO-2026-77198', 'SL-90109',
+      'Containerboard', 30, 'Pallets', 39800, 174, 8),
     ('IP-8845-D', 'assigned', 'TR-5541Z', null, 'Denver, CO', 'Omaha, NE',
       now() + interval '2 hours', now() - interval '4 hours',
-      null, null, null, null),
+      null, null, null, null,
+      'Packaging Cases', 960, 'Cases', 38100, 540, 15),
     ('IP-8850-E', 'dropped', 'TR-2290X', null, 'Savannah, GA', 'Atlanta, GA',
       now() - interval '8 hours', now() - interval '5 hours',
-      'TR-2290X', 'MFO-61042', 'PO-2026-77650', 'SL-90471')
+      'TR-2290X', 'MFO-61042', 'PO-2026-77650', 'SL-90471',
+      'Paperboard Rolls', 40, 'Rolls', 43950, 248, 3)
 ) as v(load_number, status, trailer_number, truck_number, origin_address, destination_address,
-       pickup_appointment_at, updated_at, bol_trailer_number, bol_mfo, bol_po_number, bol_seal_number)
+       pickup_appointment_at, updated_at, bol_trailer_number, bol_mfo, bol_po_number, bol_seal_number,
+       commodity, unit_count, packaging_type, weight_lbs, total_distance_miles, deadhead_miles)
 on conflict (load_number) do update set
   trailer_id = excluded.trailer_id,
   truck_id = excluded.truck_id,
@@ -72,7 +80,26 @@ on conflict (load_number) do update set
   bol_trailer_number = excluded.bol_trailer_number,
   bol_mfo = excluded.bol_mfo,
   bol_po_number = excluded.bol_po_number,
-  bol_seal_number = excluded.bol_seal_number;
+  bol_seal_number = excluded.bol_seal_number,
+  commodity = excluded.commodity,
+  unit_count = excluded.unit_count,
+  packaging_type = excluded.packaging_type,
+  weight_lbs = excluded.weight_lbs,
+  total_distance_miles = excluded.total_distance_miles,
+  deadhead_miles = excluded.deadhead_miles;
+
+-- Equipment/trailer requirements for the driver app's Load Details screen --
+-- International Paper's standard SOP (CLAUDE.md: secure every load with
+-- straps/load bars, never break an existing seal), same for every load, so
+-- a flat unconditional update rather than a per-load cycle.
+update public.loads set equipment_requirements = array[
+  '53'' Dry Van',
+  'Swing doors',
+  'Trailer free of damage',
+  'No reefer trailers',
+  'Straps or load bars required',
+  'Strict seal policy'
+] where customer_company = 'International Paper';
 
 -- International Paper's own customers -- the recipients IP ships to, tracked
 -- per load via loads.consignee_id. All five live loads get one assigned so
@@ -133,29 +160,39 @@ on conflict (load_number) do nothing;
 -- give each a plausible BOL record, the same way the 5 live loads already
 -- have one -- see the comment above for why this is realistic, not just
 -- filler.
+-- Same three commodity profiles used for the live loads above, cycled
+-- across the 14 historical ones so their Load Details cards aren't empty
+-- either (mod-3 on load position, same spirit as the trailer/truck cycling).
 update public.loads l set
   trailer_id = t.id,
   truck_id = tr.id,
   bol_trailer_number = t.trailer_number,
   bol_mfo = assign.bol_mfo,
   bol_po_number = assign.bol_po_number,
-  bol_seal_number = assign.bol_seal_number
+  bol_seal_number = assign.bol_seal_number,
+  commodity = assign.commodity,
+  unit_count = assign.unit_count,
+  packaging_type = assign.packaging_type,
+  weight_lbs = assign.weight_lbs,
+  total_distance_miles = assign.total_distance_miles,
+  deadhead_miles = assign.deadhead_miles
 from (values
-  ('IP-7901-F', 'TR-8492A', 'TRK-294', 'MFO-70011', 'PO-2026-70011', 'SL-80011'),
-  ('IP-7902-G', 'TR-1102B', 'TRK-118', 'MFO-70022', 'PO-2026-70022', 'SL-80022'),
-  ('IP-7910-F', 'TR-9934C', 'TRK-410', 'MFO-70033', 'PO-2026-70033', 'SL-80033'),
-  ('IP-7911-G', 'TR-5541Z', 'TRK-294', 'MFO-70044', 'PO-2026-70044', 'SL-80044'),
-  ('IP-7920-F', 'TR-2290X', 'TRK-118', 'MFO-70055', 'PO-2026-70055', 'SL-80055'),
-  ('IP-7921-G', 'TR-8492A', 'TRK-410', 'MFO-70066', 'PO-2026-70066', 'SL-80066'),
-  ('IP-7930-F', 'TR-1102B', 'TRK-294', 'MFO-70077', 'PO-2026-70077', 'SL-80077'),
-  ('IP-7931-G', 'TR-9934C', 'TRK-118', 'MFO-70088', 'PO-2026-70088', 'SL-80088'),
-  ('IP-7940-F', 'TR-5541Z', 'TRK-410', 'MFO-70099', 'PO-2026-70099', 'SL-80099'),
-  ('IP-7941-G', 'TR-2290X', 'TRK-294', 'MFO-70110', 'PO-2026-70110', 'SL-80110'),
-  ('IP-7950-F', 'TR-8492A', 'TRK-118', 'MFO-70121', 'PO-2026-70121', 'SL-80121'),
-  ('IP-7951-G', 'TR-1102B', 'TRK-410', 'MFO-70132', 'PO-2026-70132', 'SL-80132'),
-  ('IP-7960-F', 'TR-9934C', 'TRK-294', 'MFO-70143', 'PO-2026-70143', 'SL-80143'),
-  ('IP-7961-G', 'TR-5541Z', 'TRK-118', 'MFO-70154', 'PO-2026-70154', 'SL-80154')
-) as assign(load_number, trailer_number, truck_number, bol_mfo, bol_po_number, bol_seal_number)
+  ('IP-7901-F', 'TR-8492A', 'TRK-294', 'MFO-70011', 'PO-2026-70011', 'SL-80011', 'Kraft Paper Rolls', 48, 'Rolls', 44200, 612, 9),
+  ('IP-7902-G', 'TR-1102B', 'TRK-118', 'MFO-70022', 'PO-2026-70022', 'SL-80022', 'Corrugated Sheets', 26, 'Pallets', 42500, 781, 5),
+  ('IP-7910-F', 'TR-9934C', 'TRK-410', 'MFO-70033', 'PO-2026-70033', 'SL-80033', 'Packaging Cases', 960, 'Cases', 38100, 174, 8),
+  ('IP-7911-G', 'TR-5541Z', 'TRK-294', 'MFO-70044', 'PO-2026-70044', 'SL-80044', 'Kraft Paper Rolls', 48, 'Rolls', 44200, 540, 15),
+  ('IP-7920-F', 'TR-2290X', 'TRK-118', 'MFO-70055', 'PO-2026-70055', 'SL-80055', 'Corrugated Sheets', 26, 'Pallets', 42500, 248, 3),
+  ('IP-7921-G', 'TR-8492A', 'TRK-410', 'MFO-70066', 'PO-2026-70066', 'SL-80066', 'Packaging Cases', 960, 'Cases', 38100, 210, 6),
+  ('IP-7930-F', 'TR-1102B', 'TRK-294', 'MFO-70077', 'PO-2026-70077', 'SL-80077', 'Kraft Paper Rolls', 48, 'Rolls', 44200, 245, 4),
+  ('IP-7931-G', 'TR-9934C', 'TRK-118', 'MFO-70088', 'PO-2026-70088', 'SL-80088', 'Corrugated Sheets', 26, 'Pallets', 42500, 508, 11),
+  ('IP-7940-F', 'TR-5541Z', 'TRK-410', 'MFO-70099', 'PO-2026-70099', 'SL-80099', 'Packaging Cases', 960, 'Cases', 38100, 392, 7),
+  ('IP-7941-G', 'TR-2290X', 'TRK-294', 'MFO-70110', 'PO-2026-70110', 'SL-80110', 'Kraft Paper Rolls', 48, 'Rolls', 44200, 330, 10),
+  ('IP-7950-F', 'TR-8492A', 'TRK-118', 'MFO-70121', 'PO-2026-70121', 'SL-80121', 'Corrugated Sheets', 26, 'Pallets', 42500, 289, 2),
+  ('IP-7951-G', 'TR-1102B', 'TRK-410', 'MFO-70132', 'PO-2026-70132', 'SL-80132', 'Packaging Cases', 960, 'Cases', 38100, 197, 6),
+  ('IP-7960-F', 'TR-9934C', 'TRK-294', 'MFO-70143', 'PO-2026-70143', 'SL-80143', 'Kraft Paper Rolls', 48, 'Rolls', 44200, 155, 5),
+  ('IP-7961-G', 'TR-5541Z', 'TRK-118', 'MFO-70154', 'PO-2026-70154', 'SL-80154', 'Corrugated Sheets', 26, 'Pallets', 42500, 88, 3)
+) as assign(load_number, trailer_number, truck_number, bol_mfo, bol_po_number, bol_seal_number,
+            commodity, unit_count, packaging_type, weight_lbs, total_distance_miles, deadhead_miles)
 join public.trailers t on t.trailer_number = assign.trailer_number
 join public.trucks tr on tr.unit_number = assign.truck_number
 where l.load_number = assign.load_number;

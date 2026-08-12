@@ -95,6 +95,18 @@ create table public.loads (
   bol_mfo text,
   bol_po_number text,
   bol_seal_number text,
+  -- Cargo/load-spec fields for the driver app's Load Details screen
+  -- (Uber Freight/J.B. Hunt-style card). Dispatch-entered, not computed from
+  -- a routing API -- there's no mapping integration yet. Deliberately no
+  -- rate/pay column here: drivers don't see pay rate in this app (Carlos's
+  -- call, 2026-08-12) -- that'd live on the web dashboard if ever added.
+  weight_lbs integer,
+  commodity text,
+  unit_count integer,
+  packaging_type text,
+  deadhead_miles numeric,
+  total_distance_miles numeric,
+  equipment_requirements text[] not null default '{}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

@@ -88,19 +88,6 @@ on conflict (load_number) do update set
   total_distance_miles = excluded.total_distance_miles,
   deadhead_miles = excluded.deadhead_miles;
 
--- Equipment/trailer requirements for the driver app's Load Details screen --
--- International Paper's standard SOP (CLAUDE.md: secure every load with
--- straps/load bars, never break an existing seal), same for every load, so
--- a flat unconditional update rather than a per-load cycle.
-update public.loads set equipment_requirements = array[
-  '53'' Dry Van',
-  'Swing doors',
-  'Trailer free of damage',
-  'No reefer trailers',
-  'Straps or load bars required',
-  'Strict seal policy'
-] where customer_company = 'International Paper';
-
 -- International Paper's own customers -- the recipients IP ships to, tracked
 -- per load via loads.consignee_id. All five live loads get one assigned so
 -- the Loads Overview "Customer" column is fully populated; the historical
@@ -211,6 +198,22 @@ from (values
 join public.consignees c
   on c.customer_company = 'International Paper' and c.name = assign.consignee_name
 where l.load_number = assign.load_number;
+
+-- Equipment/trailer requirements for the driver app's Load Details screen --
+-- International Paper's standard SOP (CLAUDE.md: secure every load with
+-- straps/load bars, never break an existing seal), same for every load, so
+-- a flat unconditional update rather than a per-load cycle. Runs here
+-- (after BOTH load inserts above) rather than right after the live-loads
+-- insert, so it actually reaches the 14 historical loads too -- it used to
+-- run before they existed and silently missed all of them.
+update public.loads set equipment_requirements = array[
+  '53'' Dry Van',
+  'Swing doors',
+  'Trailer free of damage',
+  'No reefer trailers',
+  'Straps or load bars required',
+  'Strict seal policy'
+] where customer_company = 'International Paper';
 
 -- ============================================================================
 -- DRIVERS -- run this section only after creating these 3 accounts in the

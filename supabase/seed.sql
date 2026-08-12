@@ -259,8 +259,11 @@ where l.load_number = assign.load_number;
 -- CLAUDE.md's physical workflow) -- IP-8845-D is skipped since it hasn't
 -- been picked up yet. Timestamps are relative to each load's own
 -- pickup_appointment_at so sealed/locked/signed stay in a sane order.
-insert into public.checklists (load_id, driver_id, status, single_stack_confirmed, seal_number, sealed_at, locked_at, signed_at)
-select l.id, l.driver_id, v.status::public.checklist_status, true, l.bol_seal_number,
+insert into public.checklists
+  (load_id, driver_id, status, plant_copy_turned_in_at, single_stack_confirmed, seal_number, sealed_at, locked_at, signed_at)
+select l.id, l.driver_id, v.status::public.checklist_status,
+  l.pickup_appointment_at + interval '25 minutes',
+  true, l.bol_seal_number,
   l.pickup_appointment_at + interval '30 minutes',
   l.pickup_appointment_at + interval '35 minutes',
   l.pickup_appointment_at + interval '40 minutes'
@@ -278,8 +281,11 @@ where l.driver_id is not null
 -- have no pickup_appointment_at (never set for these backdated rows), so
 -- timestamps anchor to created_at (dispatch) instead, safely inside the
 -- created_at -> updated_at (delivery) window each one already has.
-insert into public.checklists (load_id, driver_id, status, single_stack_confirmed, seal_number, sealed_at, locked_at, signed_at)
-select l.id, l.driver_id, 'locked', true, l.bol_seal_number,
+insert into public.checklists
+  (load_id, driver_id, status, plant_copy_turned_in_at, single_stack_confirmed, seal_number, sealed_at, locked_at, signed_at)
+select l.id, l.driver_id, 'locked',
+  l.created_at + interval '1 hour 50 minutes',
+  true, l.bol_seal_number,
   l.created_at + interval '2 hours',
   l.created_at + interval '2 hours 15 minutes',
   l.created_at + interval '2 hours 30 minutes'

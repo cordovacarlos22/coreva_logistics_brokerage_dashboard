@@ -123,6 +123,9 @@ create table public.checklists (
   load_id uuid not null references public.loads (id) on delete cascade,
   driver_id uuid not null references public.profiles (id),
   status public.checklist_status not null default 'in_progress',
+  -- Departure checklist step 2 (turn in the signed/stamped plant copy before
+  -- departing) -- distinct from `signed_at` (step 1, signing the plant copy).
+  plant_copy_turned_in_at timestamptz,
   -- "Secure every load, even single-stacked, no exceptions."
   single_stack_confirmed boolean not null default false,
   seal_number text,
@@ -354,9 +357,16 @@ create policy checklists_select on public.checklists for select
   );
 create policy checklists_insert on public.checklists for insert
   with check (public.is_staff() or driver_id = auth.uid());
+-- `using` gates which existing rows a driver may touch at all (must still be
+-- in_progress -- this is what makes a locked row permanently uneditable).
+-- `with check` only re-verifies ownership of the resulting row, not that it
+-- is STILL in_progress -- requiring that would make it impossible for a
+-- driver to ever flip status to 'locked' themselves (the with check runs
+-- against the NEW row), which would contradict "placing a seal locks the
+-- checklist" being a driver-initiated action.
 create policy checklists_update on public.checklists for update
   using (public.is_staff() or (driver_id = auth.uid() and status = 'in_progress'))
-  with check (public.is_staff() or (driver_id = auth.uid() and status = 'in_progress'));
+  with check (public.is_staff() or driver_id = auth.uid());
 
 -- checklist_photos / checklist_signatures: mirror the parent checklist.
 create policy checklist_photos_select on public.checklist_photos for select
@@ -538,6 +548,39 @@ create policy load_messages_insert on public.load_messages for insert
           and (
             l.customer_company = public.current_customer_company()
             or (channel = 'driver' and l.driver_id = auth.uid())
+          )
+      )
+    )
+  );
+
+-- ============================================================================
+-- Storage RLS -- `load-photos` bucket (supabase/README.md's Storage Buckets
+-- table). The bucket itself must still be created by hand in the Supabase
+-- dashboard (private, not public); these policies are what let the driver
+-- app's authenticated client actually write to it and read back its own
+-- uploads once it exists. Other buckets (bol-photos, signatures,
+-- damage-reports) are intentionally left unpoliced here -- their features
+-- (BOL/OCR capture, signature capture, damage reporting) aren't built yet.
+-- ============================================================================
+
+create policy "load-photos insert (drivers only)" on storage.objects for insert
+  with check (bucket_id = 'load-photos' and public.is_driver());
+
+create policy "load-photos select (owner, staff, or load's customer)" on storage.objects for select
+  using (
+    bucket_id = 'load-photos'
+    and (
+      public.is_staff()
+      or exists (
+        select 1 from public.checklist_photos cp
+        join public.checklists c on c.id = cp.checklist_id
+        where cp.storage_path = storage.objects.name
+          and (
+            c.driver_id = auth.uid()
+            or exists (
+              select 1 from public.loads l
+              where l.id = c.load_id and l.customer_company = public.current_customer_company()
+            )
           )
       )
     )

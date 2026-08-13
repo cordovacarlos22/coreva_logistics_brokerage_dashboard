@@ -92,11 +92,17 @@ on conflict (load_number) do update set
 -- per load via loads.consignee_id. All five live loads get one assigned so
 -- the Loads Overview "Customer" column is fully populated; the historical
 -- loads get theirs further below, once those rows exist.
-insert into public.consignees (name, customer_company) values
-  ('New Balance', 'International Paper'),
-  ('California Packaging', 'International Paper'),
-  ('OSI', 'International Paper')
-on conflict (customer_company, name) do nothing;
+-- address backs the driver app's Scan New Shipment destination picker --
+-- selecting a known consignee auto-fills destination_address instead of
+-- the driver retyping it every time. ON CONFLICT DO UPDATE (not DO
+-- NOTHING) so re-running this file actually backfills address onto
+-- consignees created before that column existed -- same class of bug as
+-- the checklists idempotency fix above.
+insert into public.consignees (name, customer_company, address) values
+  ('New Balance', 'International Paper', '40 Life Way, Lawrence, MA 01843'),
+  ('California Packaging', 'International Paper', '1200 W Artesia Blvd, Compton, CA 90220'),
+  ('OSI', 'International Paper', '9 Parklawn Dr, Rochester, NY 14606')
+on conflict (customer_company, name) do update set address = excluded.address;
 
 update public.loads l set consignee_id = c.id
 from (values
@@ -269,6 +275,15 @@ where l.load_number = assign.load_number;
 -- CLAUDE.md's physical workflow) -- IP-8845-D is skipped since it hasn't
 -- been picked up yet. Timestamps are relative to each load's own
 -- pickup_appointment_at so sealed/locked/signed stay in a sane order.
+-- Uses ON CONFLICT DO UPDATE (not the old WHERE NOT EXISTS pattern) so
+-- re-running this file actually backfills new columns onto a checklist row
+-- that was first created before those columns existed -- WHERE NOT EXISTS
+-- silently skipped every already-existing row, which is why arrived_at
+-- (and plant_copy_turned_in_at before it) never landed on IP-8842-A's row
+-- across several schema additions. This does mean any real in-app testing
+-- progress on these four specific demo loads gets reset on every re-run --
+-- matches the same reset-to-known-state behavior the `loads` upsert above
+-- already has.
 insert into public.checklists
   (load_id, driver_id, status, arrived_at, plant_copy_turned_in_at, single_stack_confirmed, seal_number, sealed_at, locked_at, signed_at)
 select l.id, l.driver_id, v.status::public.checklist_status,
@@ -286,7 +301,15 @@ join (values
   ('IP-8850-E', 'locked')
 ) as v(load_number, status) on l.load_number = v.load_number
 where l.driver_id is not null
-  and not exists (select 1 from public.checklists c where c.load_id = l.id);
+on conflict (load_id, driver_id) do update set
+  status = excluded.status,
+  arrived_at = excluded.arrived_at,
+  plant_copy_turned_in_at = excluded.plant_copy_turned_in_at,
+  single_stack_confirmed = excluded.single_stack_confirmed,
+  seal_number = excluded.seal_number,
+  sealed_at = excluded.sealed_at,
+  locked_at = excluded.locked_at,
+  signed_at = excluded.signed_at;
 
 -- Departure from pickup lives on loads.picked_up_at, not the (already
 -- locked) checklist row -- see schema.sql's comment on that column.
@@ -309,7 +332,15 @@ select l.id, l.driver_id, 'locked',
 from public.loads l
 where l.load_number like 'IP-79%'
   and l.driver_id is not null
-  and not exists (select 1 from public.checklists c where c.load_id = l.id);
+on conflict (load_id, driver_id) do update set
+  status = excluded.status,
+  arrived_at = excluded.arrived_at,
+  plant_copy_turned_in_at = excluded.plant_copy_turned_in_at,
+  single_stack_confirmed = excluded.single_stack_confirmed,
+  seal_number = excluded.seal_number,
+  sealed_at = excluded.sealed_at,
+  locked_at = excluded.locked_at,
+  signed_at = excluded.signed_at;
 
 update public.loads set picked_up_at = created_at + interval '2 hours 35 minutes'
 where load_number like 'IP-79%';
@@ -333,7 +364,10 @@ select l.id, l.driver_id, l.truck_id,
   'pass', c.arrived_at + interval '5 minutes'
 from public.loads l
 join public.checklists c on c.load_id = l.id
-where not exists (select 1 from public.pre_trip_inspections p where p.load_id = l.id);
+on conflict (load_id, driver_id) do update set
+  items = excluded.items,
+  overall_result = excluded.overall_result,
+  completed_at = excluded.completed_at;
 
 -- One open discrepancy, matching the "forklift scanned the wrong trailer"
 -- edge case from CLAUDE.md, so the Discrepancy Reports card shows something

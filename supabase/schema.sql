@@ -73,6 +73,7 @@ create table public.consignees (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   customer_company text not null,
+  address text,
   created_at timestamptz not null default now(),
   unique (customer_company, name)
 );
@@ -314,8 +315,16 @@ create policy trailers_write on public.trailers for all
 -- consignees: staff manage the list; a customer sees only their own
 -- environment's entries (e.g. IP sees IP's consignees, not a future second
 -- customer's).
+-- Drivers need read access too now (Scan New Shipment's destination
+-- picker, driver app) -- write stays staff-only; a driver whose delivery
+-- destination isn't in the list yet falls back to typing the address
+-- manually rather than being able to create consignee records themselves.
 create policy consignees_select on public.consignees for select
-  using (public.is_staff() or customer_company = public.current_customer_company());
+  using (
+    public.is_staff()
+    or public.is_driver()
+    or customer_company = public.current_customer_company()
+  );
 create policy consignees_write on public.consignees for all
   using (public.is_staff()) with check (public.is_staff());
 

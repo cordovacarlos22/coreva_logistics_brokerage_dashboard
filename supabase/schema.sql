@@ -576,9 +576,9 @@ create policy load_messages_insert on public.load_messages for insert
 -- table). The bucket itself must still be created by hand in the Supabase
 -- dashboard (private, not public); these policies are what let the driver
 -- app's authenticated client actually write to it and read back its own
--- uploads once it exists. Other buckets (bol-photos, signatures,
--- damage-reports) are intentionally left unpoliced here -- their features
--- (BOL/OCR capture, signature capture, damage reporting) aren't built yet.
+-- uploads once it exists. `bol-photos` gets its own matching policies below
+-- (Phase 2). `signatures`/`damage-reports` are still intentionally
+-- unpoliced -- those features aren't built yet.
 -- ============================================================================
 
 create policy "load-photos insert (drivers only)" on storage.objects for insert
@@ -587,6 +587,106 @@ create policy "load-photos insert (drivers only)" on storage.objects for insert
 create policy "load-photos select (owner, staff, or load's customer)" on storage.objects for select
   using (
     bucket_id = 'load-photos'
+    and (
+      public.is_staff()
+      or exists (
+        select 1 from public.checklist_photos cp
+        join public.checklists c on c.id = cp.checklist_id
+        where cp.storage_path = storage.objects.name
+          and (
+            c.driver_id = auth.uid()
+            or exists (
+              select 1 from public.loads l
+              where l.id = c.load_id and l.customer_company = public.current_customer_company()
+            )
+          )
+      )
+    )
+  );
+
+-- ============================================================================
+-- Driver App Phase 2 -- Activate Shipment, Pre-Trip Inspection, real BOL OCR.
+-- ============================================================================
+
+create type public.verification_status as enum ('pending', 'ai_verified', 'dispatch_verified');
+
+-- Set by the new /api/ocr/bol backend route once it extracts BOL fields
+-- (trailer #, MFO, PO #, weight, commodity -- not seal #, since the seal
+-- isn't placed until the existing "Seal the Trailer" checklist step, so it
+-- was never legible in an early BOL photo). `ai_verified` when every
+-- expected field was found by OCR; `pending` otherwise, surfaced to
+-- dispatch on the web Load Detail page for manual correction.
+-- picked_up_at is when the driver leaves the pickup with a secured, sealed
+-- trailer -- set on `loads` (not `checklists`) deliberately: by that point
+-- in the flow the checklist row is already 'locked' (seal placed), and the
+-- checklists_update RLS policy blocks a driver from writing to a locked row
+-- at all. loads_write has no such lock, so departure lives here instead.
+alter table public.loads
+  add column bol_verification_status public.verification_status not null default 'pending',
+  add column bol_verified_at timestamptz,
+  add column bol_verified_by uuid references public.profiles (id),
+  add column picked_up_at timestamptz;
+
+-- Doubles as the "has this driver activated the load" signal -- the driver
+-- app's Activate Shipment tab shows assigned loads where this is still
+-- null; Current Load shows it once set.
+alter table public.checklists
+  add column arrived_at timestamptz;
+
+create type public.pre_trip_inspection_result as enum ('pass', 'fail');
+
+-- One row per driver per load, mirroring `checklists`' shape/lifecycle:
+-- in-progress while being filled out, frozen once completed_at is set. A
+-- failed item is recorded but doesn't block the driver from continuing --
+-- same non-blocking judgment call as BOL verification. `items` holds
+-- entries like {"label": "Brakes", "result": "pass", "notes": ""}.
+create table public.pre_trip_inspections (
+  id uuid primary key default gen_random_uuid(),
+  load_id uuid not null references public.loads (id) on delete cascade,
+  driver_id uuid not null references public.profiles (id),
+  truck_id uuid references public.trucks (id),
+  items jsonb not null default '[]',
+  overall_result public.pre_trip_inspection_result,
+  completed_at timestamptz,
+  created_at timestamptz not null default now(),
+  unique (load_id, driver_id)
+);
+
+create index pre_trip_inspections_load_id_idx on public.pre_trip_inspections (load_id);
+
+alter table public.pre_trip_inspections enable row level security;
+
+create policy pre_trip_inspections_select on public.pre_trip_inspections for select
+  using (
+    public.is_staff()
+    or driver_id = auth.uid()
+    or exists (
+      select 1 from public.loads l
+      where l.id = pre_trip_inspections.load_id
+        and l.customer_company = public.current_customer_company()
+    )
+  );
+create policy pre_trip_inspections_insert on public.pre_trip_inspections for insert
+  with check (public.is_staff() or driver_id = auth.uid());
+-- Same shape as checklists_update: `using` gates which rows a driver may
+-- touch at all (must still be uncompleted); `with check` only re-verifies
+-- ownership of the resulting row, not that it's still uncompleted, so a
+-- driver can flip completed_at themselves without being locked out of
+-- making that exact update.
+create policy pre_trip_inspections_update on public.pre_trip_inspections for update
+  using (public.is_staff() or (driver_id = auth.uid() and completed_at is null))
+  with check (public.is_staff() or driver_id = auth.uid());
+
+-- Storage RLS for `bol-photos` (checklist step 5 in CLAUDE.md's original
+-- workflow -- the bucket/enum value/ocr_raw column all already existed,
+-- this is the first thing to actually write to them). Mirrors the
+-- `load-photos` policies above exactly.
+create policy "bol-photos insert (drivers only)" on storage.objects for insert
+  with check (bucket_id = 'bol-photos' and public.is_driver());
+
+create policy "bol-photos select (owner, staff, or load's customer)" on storage.objects for select
+  using (
+    bucket_id = 'bol-photos'
     and (
       public.is_staff()
       or exists (

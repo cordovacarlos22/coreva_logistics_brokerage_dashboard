@@ -3,7 +3,7 @@ export async function fetchLoads(supabaseClient) {
     .from('loads')
     .select(
       `id, load_number, status, customer_company, origin_address, destination_address,
-       created_at, updated_at, delivery_appointment_at,
+       created_at, updated_at, delivery_appointment_at, bol_verification_status,
        driver:profiles(full_name),
        trailer:trailers(trailer_number),
        consignee:consignees(id, name)`

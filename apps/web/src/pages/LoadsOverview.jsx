@@ -120,8 +120,16 @@ export default function LoadsOverview() {
               {filteredLoads.map((load) => (
                 <tr key={load.id} className="border-b border-border last:border-0 hover:bg-surface">
                   <td className="px-4 py-3 font-mono">
-                    <Link to={`/loads/${load.id}`} className="text-primary hover:underline">
+                    <Link to={`/loads/${load.id}`} className="inline-flex items-center gap-1.5 text-primary hover:underline">
                       {load.load_number}
+                      {isStaff && load.bol_verification_status === 'pending' && (
+                        <span
+                          title="BOL pending verification"
+                          className="rounded-badge bg-status-dropped px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white no-underline"
+                        >
+                          Pending
+                        </span>
+                      )}
                     </Link>
                   </td>
                   <td className="px-4 py-3">

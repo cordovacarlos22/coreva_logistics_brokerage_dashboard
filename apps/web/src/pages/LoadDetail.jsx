@@ -8,7 +8,7 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import AppShell from '../components/layout/AppShell.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import ChatPanel from '../components/ChatPanel.jsx';
-import { fetchLoadDetail, addLoadNote, updateLoadConsignee } from '../lib/loadDetail.js';
+import { fetchLoadDetail, addLoadNote, updateLoadConsignee, markBolVerified, updateBolFields } from '../lib/loadDetail.js';
 import { fetchConsignees, createConsignee } from '../lib/consignees.js';
 import { fetchLoadMessages, sendLoadMessage, subscribeToInserts } from '../lib/chat.js';
 import {
@@ -155,6 +155,179 @@ function CustomerField({ load, isStaff, onUpdated }) {
       </div>
       {formError && <p className="mt-1 text-xs text-status-dropped">{formError}</p>}
     </div>
+  );
+}
+
+const VERIFICATION_LABELS = {
+  pending: 'Pending Verification',
+  ai_verified: 'AI Verified',
+  dispatch_verified: 'Dispatch Verified',
+};
+const VERIFICATION_STYLES = {
+  pending: 'bg-status-dropped',
+  ai_verified: 'bg-status-in-transit',
+  dispatch_verified: 'bg-status-delivered',
+};
+
+function VerificationBadge({ status }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-badge px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-white ${
+        VERIFICATION_STYLES[status] ?? 'bg-status-assigned'
+      }`}
+    >
+      {VERIFICATION_LABELS[status] ?? status}
+    </span>
+  );
+}
+
+// The BOL fields are populated by the driver app's OCR step (real Google
+// Cloud Vision, see the standalone backend's /api/ocr/bol) -- this is
+// dispatch's way to review/correct a bad OCR read and confirm the record,
+// same "clone the inline-edit pattern" approach as CustomerField above, just
+// several fields at once instead of one.
+function BolVerificationCard({ load, isStaff, userId, onUpdated }) {
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState(null);
+
+  function startEditing() {
+    setFormError(null);
+    setForm({
+      bol_trailer_number: load.bol_trailer_number ?? '',
+      bol_mfo: load.bol_mfo ?? '',
+      bol_po_number: load.bol_po_number ?? '',
+      bol_seal_number: load.bol_seal_number ?? '',
+      weight_lbs: load.weight_lbs ?? '',
+      commodity: load.commodity ?? '',
+    });
+    setEditing(true);
+  }
+
+  function fieldsFromForm() {
+    return { ...form, weight_lbs: form.weight_lbs === '' ? null : Number(form.weight_lbs) };
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setFormError(null);
+    try {
+      const updated = await updateBolFields(supabase, { loadId: load.id, patch: fieldsFromForm() });
+      onUpdated(updated);
+      setEditing(false);
+      sileo.success({ title: 'BOL details updated' });
+    } catch (err) {
+      setFormError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleMarkVerified() {
+    setSaving(true);
+    setFormError(null);
+    try {
+      const updated = await markBolVerified(supabase, {
+        loadId: load.id,
+        verifiedBy: userId,
+        patch: editing ? fieldsFromForm() : {},
+      });
+      onUpdated(updated);
+      setEditing(false);
+      sileo.success({ title: 'BOL marked verified' });
+    } catch (err) {
+      setFormError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card title="BOL Verification">
+      <div className="mb-3 flex items-center justify-between">
+        <VerificationBadge status={load.bol_verification_status} />
+        {load.bol_verified_at && (
+          <span className="text-xs text-text/60">{formatDateTime(load.bol_verified_at)}</span>
+        )}
+      </div>
+
+      {!editing ? (
+        <>
+          <Field label="Trailer #" value={load.bol_trailer_number} />
+          <Field label="MFO" value={load.bol_mfo} />
+          <Field label="PO Number" value={load.bol_po_number} />
+          <Field label="Seal Number" value={load.bol_seal_number} />
+          <Field label="Weight" value={load.weight_lbs ? `${load.weight_lbs.toLocaleString()} lb` : null} />
+          <Field label="Commodity" value={load.commodity} />
+        </>
+      ) : (
+        <div className="space-y-2">
+          {[
+            ['bol_trailer_number', 'Trailer #'],
+            ['bol_mfo', 'MFO'],
+            ['bol_po_number', 'PO Number'],
+            ['bol_seal_number', 'Seal Number'],
+            ['weight_lbs', 'Weight (lb)'],
+            ['commodity', 'Commodity'],
+          ].map(([key, label]) => (
+            <label key={key} className="flex items-center justify-between gap-2 text-sm">
+              <span className="text-text/60">{label}</span>
+              <input
+                type={key === 'weight_lbs' ? 'number' : 'text'}
+                value={form[key]}
+                onChange={(event) => setForm((prev) => ({ ...prev, [key]: event.target.value }))}
+                className="w-40 rounded border border-border px-2 py-1 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10"
+              />
+            </label>
+          ))}
+        </div>
+      )}
+
+      {formError && <p className="mt-2 text-sm text-status-dropped">{formError}</p>}
+
+      {isStaff && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {!editing ? (
+            <button
+              type="button"
+              onClick={startEditing}
+              className="rounded border border-border px-3 py-1.5 text-xs font-semibold text-text hover:bg-surface"
+            >
+              Edit
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setEditing(false)}
+                className="rounded border border-border px-3 py-1.5 text-xs font-semibold text-text hover:bg-surface"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className="rounded bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-60"
+              >
+                Save
+              </button>
+            </>
+          )}
+          {load.bol_verification_status !== 'dispatch_verified' && (
+            <button
+              type="button"
+              onClick={handleMarkVerified}
+              disabled={saving}
+              className="rounded bg-status-delivered px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:opacity-90 disabled:opacity-60"
+            >
+              Mark Verified
+            </button>
+          )}
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -316,14 +489,17 @@ export default function LoadDetail() {
                   setDetail((prev) => ({ ...prev, load: { ...prev.load, consignee } }))
                 }
               />
-              <Field label="Trailer #" value={load.bol_trailer_number} />
-              <Field label="MFO" value={load.bol_mfo} />
-              <Field label="PO Number" value={load.bol_po_number} />
-              <Field label="Seal Number" value={load.bol_seal_number} />
               <Field label="Assigned Truck" value={load.truck?.unit_number} />
               <Field label="Assigned Trailer" value={load.trailer?.trailer_number} />
               <Field label="Driver" value={load.driver?.full_name} />
             </Card>
+
+            <BolVerificationCard
+              load={load}
+              isStaff={isStaff}
+              userId={user.id}
+              onUpdated={(patch) => setDetail((prev) => ({ ...prev, load: { ...prev.load, ...patch } }))}
+            />
 
             <Card title="Route">
               <Field label="Origin" value={load.origin_address} />

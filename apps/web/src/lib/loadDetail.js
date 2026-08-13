@@ -67,3 +67,33 @@ export async function updateLoadConsignee(supabaseClient, { loadId, consigneeId 
   if (error) throw new Error(`loads update: ${error.message}`);
   return data.consignee;
 }
+
+const BOL_FIELDS =
+  'bol_trailer_number, bol_mfo, bol_po_number, bol_seal_number, weight_lbs, commodity, bol_verification_status, bol_verified_at, bol_verified_by';
+
+export async function updateBolFields(supabaseClient, { loadId, patch }) {
+  const { data, error } = await supabaseClient
+    .from('loads')
+    .update(patch)
+    .eq('id', loadId)
+    .select(BOL_FIELDS)
+    .single();
+
+  if (error) throw new Error(`loads update: ${error.message}`);
+  return data;
+}
+
+// Driver-app OCR (Google Cloud Vision, /api/ocr/bol) auto-verifies when it
+// finds every expected field; this is the dispatch-side override/confirm
+// for the 'pending' case, or just a way to correct a bad OCR read.
+export async function markBolVerified(supabaseClient, { loadId, verifiedBy, patch = {} }) {
+  return updateBolFields(supabaseClient, {
+    loadId,
+    patch: {
+      ...patch,
+      bol_verification_status: 'dispatch_verified',
+      bol_verified_at: new Date().toISOString(),
+      bol_verified_by: verifiedBy,
+    },
+  });
+}

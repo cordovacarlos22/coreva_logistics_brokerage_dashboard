@@ -215,6 +215,16 @@ update public.loads set equipment_requirements = array[
   'Strict seal policy'
 ] where customer_company = 'International Paper';
 
+-- Every load seeded above already has real (fictional) BOL data baked in --
+-- treat those as already verified rather than showing a "pending
+-- verification" badge on demo data that was never actually run through the
+-- new OCR flow. bol_verified_by stays null (no real dispatcher account
+-- reliably exists at seed time -- see the DRIVERS section below for why).
+update public.loads set
+  bol_verification_status = 'dispatch_verified',
+  bol_verified_at = coalesce(updated_at, created_at)
+where bol_trailer_number is not null;
+
 -- ============================================================================
 -- DRIVERS -- run this section only after creating these 3 accounts in the
 -- Supabase dashboard: Authentication > Users > Add User (check "Auto Confirm
@@ -260,8 +270,9 @@ where l.load_number = assign.load_number;
 -- been picked up yet. Timestamps are relative to each load's own
 -- pickup_appointment_at so sealed/locked/signed stay in a sane order.
 insert into public.checklists
-  (load_id, driver_id, status, plant_copy_turned_in_at, single_stack_confirmed, seal_number, sealed_at, locked_at, signed_at)
+  (load_id, driver_id, status, arrived_at, plant_copy_turned_in_at, single_stack_confirmed, seal_number, sealed_at, locked_at, signed_at)
 select l.id, l.driver_id, v.status::public.checklist_status,
+  l.pickup_appointment_at + interval '5 minutes',
   l.pickup_appointment_at + interval '25 minutes',
   true, l.bol_seal_number,
   l.pickup_appointment_at + interval '30 minutes',
@@ -277,13 +288,19 @@ join (values
 where l.driver_id is not null
   and not exists (select 1 from public.checklists c where c.load_id = l.id);
 
+-- Departure from pickup lives on loads.picked_up_at, not the (already
+-- locked) checklist row -- see schema.sql's comment on that column.
+update public.loads set picked_up_at = pickup_appointment_at + interval '45 minutes'
+where load_number in ('IP-8842-A', 'IP-8843-B', 'IP-8839-C', 'IP-8850-E');
+
 -- Same for the 14 historical loads -- all delivered, so all locked. They
 -- have no pickup_appointment_at (never set for these backdated rows), so
 -- timestamps anchor to created_at (dispatch) instead, safely inside the
 -- created_at -> updated_at (delivery) window each one already has.
 insert into public.checklists
-  (load_id, driver_id, status, plant_copy_turned_in_at, single_stack_confirmed, seal_number, sealed_at, locked_at, signed_at)
+  (load_id, driver_id, status, arrived_at, plant_copy_turned_in_at, single_stack_confirmed, seal_number, sealed_at, locked_at, signed_at)
 select l.id, l.driver_id, 'locked',
+  l.created_at + interval '1 hour 45 minutes',
   l.created_at + interval '1 hour 50 minutes',
   true, l.bol_seal_number,
   l.created_at + interval '2 hours',
@@ -293,6 +310,30 @@ from public.loads l
 where l.load_number like 'IP-79%'
   and l.driver_id is not null
   and not exists (select 1 from public.checklists c where c.load_id = l.id);
+
+update public.loads set picked_up_at = created_at + interval '2 hours 35 minutes'
+where load_number like 'IP-79%';
+
+-- Pre-trip inspections for every load that already has a checklist (i.e.
+-- has actually been picked up) -- same 8-item list the driver app uses
+-- (lib/preTrip.js), all passing, so a fully-progressed demo load doesn't
+-- show a phantom incomplete inspection step.
+insert into public.pre_trip_inspections (load_id, driver_id, truck_id, items, overall_result, completed_at)
+select l.id, l.driver_id, l.truck_id,
+  jsonb_build_array(
+    jsonb_build_object('label', 'Lights & Signals', 'result', 'pass', 'notes', ''),
+    jsonb_build_object('label', 'Tires & Wheels', 'result', 'pass', 'notes', ''),
+    jsonb_build_object('label', 'Brakes', 'result', 'pass', 'notes', ''),
+    jsonb_build_object('label', 'Mirrors & Horn', 'result', 'pass', 'notes', ''),
+    jsonb_build_object('label', 'Coupling System', 'result', 'pass', 'notes', ''),
+    jsonb_build_object('label', 'Trailer Doors & Body', 'result', 'pass', 'notes', ''),
+    jsonb_build_object('label', 'Fluid Levels', 'result', 'pass', 'notes', ''),
+    jsonb_build_object('label', 'Emergency Equipment', 'result', 'pass', 'notes', '')
+  ),
+  'pass', c.arrived_at + interval '5 minutes'
+from public.loads l
+join public.checklists c on c.load_id = l.id
+where not exists (select 1 from public.pre_trip_inspections p where p.load_id = l.id);
 
 -- One open discrepancy, matching the "forklift scanned the wrong trailer"
 -- edge case from CLAUDE.md, so the Discrepancy Reports card shows something

@@ -3,7 +3,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import LoadDetail from './LoadDetail.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
-import { fetchLoadDetail, updateLoadConsignee } from '../lib/loadDetail.js';
+import { fetchLoadDetail, updateLoadConsignee, markBolVerified } from '../lib/loadDetail.js';
 import { fetchConsignees } from '../lib/consignees.js';
 
 vi.mock('../contexts/AuthContext.jsx', () => ({ useAuth: vi.fn() }));
@@ -12,6 +12,8 @@ vi.mock('../lib/loadDetail.js', () => ({
   fetchLoadDetail: vi.fn(),
   addLoadNote: vi.fn(),
   updateLoadConsignee: vi.fn(),
+  updateBolFields: vi.fn(),
+  markBolVerified: vi.fn(),
 }));
 
 vi.mock('../lib/consignees.js', () => ({
@@ -35,6 +37,10 @@ const BASE_DETAIL = {
     bol_mfo: null,
     bol_po_number: null,
     bol_seal_number: null,
+    bol_verification_status: 'pending',
+    bol_verified_at: null,
+    weight_lbs: null,
+    commodity: null,
     origin_address: 'Memphis, TN',
     destination_address: 'Chicago, IL',
     pickup_appointment_at: null,
@@ -112,6 +118,28 @@ describe('LoadDetail', () => {
       )
     );
     expect(await screen.findByText('OSI')).toBeInTheDocument();
+  });
+
+  it('lets a dispatcher mark a pending BOL as verified', async () => {
+    markBolVerified.mockResolvedValue({
+      bol_trailer_number: 'TR-8492A',
+      bol_verification_status: 'dispatch_verified',
+      bol_verified_at: '2026-08-13T00:00:00Z',
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('Pending Verification')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Verified' }));
+
+    await waitFor(() =>
+      expect(markBolVerified).toHaveBeenCalledWith(expect.anything(), {
+        loadId: 'load-1',
+        verifiedBy: 'user-1',
+        patch: {},
+      })
+    );
+    expect(await screen.findByText('Dispatch Verified')).toBeInTheDocument();
   });
 
   it('shows the customer read-only for a customer-role login, with no Change control', async () => {

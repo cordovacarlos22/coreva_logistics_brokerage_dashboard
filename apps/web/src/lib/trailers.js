@@ -48,7 +48,7 @@ export async function createTrailer(supabaseClient, { trailerNumber, type, statu
 export async function fetchActiveLoadsByTrailer(supabaseClient) {
   const { data, error } = await supabaseClient
     .from('loads')
-    .select('trailer_id, status, driver:profiles(full_name)')
+    .select('trailer_id, status, driver:profiles!driver_id(full_name)')
     .not('trailer_id', 'is', null)
     .not('status', 'in', '(delivered,dropped)');
 

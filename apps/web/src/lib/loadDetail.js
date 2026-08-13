@@ -10,7 +10,7 @@ export async function fetchLoadDetail(supabaseClient, loadId) {
     supabaseClient
       .from('loads')
       .select(
-        `*, driver:profiles(full_name), trailer:trailers(trailer_number, type), truck:trucks(unit_number),
+        `*, driver:profiles!driver_id(full_name), trailer:trailers(trailer_number, type), truck:trucks(unit_number),
          consignee:consignees(id, name)`
       )
       .eq('id', loadId)

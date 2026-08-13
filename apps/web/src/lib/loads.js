@@ -4,7 +4,7 @@ export async function fetchLoads(supabaseClient) {
     .select(
       `id, load_number, status, customer_company, origin_address, destination_address,
        created_at, updated_at, delivery_appointment_at, bol_verification_status,
-       driver:profiles(full_name),
+       driver:profiles!driver_id(full_name),
        trailer:trailers(trailer_number),
        consignee:consignees(id, name)`
     )

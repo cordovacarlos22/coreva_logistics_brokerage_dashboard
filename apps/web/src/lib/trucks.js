@@ -18,7 +18,7 @@ export async function fetchTruckLocations(supabaseClient) {
 export async function fetchActiveLoadsByTruck(supabaseClient) {
   const { data, error } = await supabaseClient
     .from('loads')
-    .select('truck_id, driver:profiles(full_name)')
+    .select('truck_id, driver:profiles!driver_id(full_name)')
     .not('truck_id', 'is', null)
     .not('status', 'in', '(delivered,dropped)');
 

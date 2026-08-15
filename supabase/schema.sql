@@ -712,3 +712,81 @@ create policy "bol-photos select (owner, staff, or load's customer)" on storage.
       )
     )
   );
+
+-- ============================================================================
+-- Driver App Phase 3 -- Delivery flow.
+-- ============================================================================
+
+-- Mirrors pre_trip_inspections' shape/lifecycle -- one row per driver per
+-- load, frozen once locked. Delivery gets its own table rather than
+-- extending `checklists` because by the time a load reaches delivery, its
+-- pickup checklist is already 'locked' (seal placed) and checklists_update
+-- RLS permanently blocks writing to a locked row -- see that policy's
+-- comment. The terminal step here (Confirm Departure) sets departed_at +
+-- status='locked' + locked_at together in one atomic update, the same
+-- pattern sealChecklist already uses for the pickup side, so there's no
+-- "write after lock" conflict to design around this time.
+create table public.delivery_records (
+  id uuid primary key default gen_random_uuid(),
+  load_id uuid not null references public.loads (id) on delete cascade,
+  driver_id uuid not null references public.profiles (id),
+  arrived_at timestamptz,
+  unloaded_at timestamptz,
+  pod_storage_path text,
+  pod_ocr_raw jsonb,
+  departed_at timestamptz,
+  status public.checklist_status not null default 'in_progress',
+  locked_at timestamptz,
+  created_at timestamptz not null default now(),
+  unique (load_id, driver_id)
+);
+
+create index delivery_records_load_id_idx on public.delivery_records (load_id);
+
+alter table public.delivery_records enable row level security;
+
+create policy delivery_records_select on public.delivery_records for select
+  using (
+    public.is_staff()
+    or driver_id = auth.uid()
+    or exists (
+      select 1 from public.loads l
+      where l.id = delivery_records.load_id
+        and l.customer_company = public.current_customer_company()
+    )
+  );
+create policy delivery_records_insert on public.delivery_records for insert
+  with check (public.is_staff() or driver_id = auth.uid());
+-- Same shape as checklists_update: `using` gates which rows a driver may
+-- touch at all (must still be in_progress); `with check` only re-verifies
+-- ownership of the resulting row, not that it's still in_progress, so the
+-- driver's own terminal update (the one that sets status='locked') is the
+-- exact write this is meant to allow.
+create policy delivery_records_update on public.delivery_records for update
+  using (public.is_staff() or (driver_id = auth.uid() and status = 'in_progress'))
+  with check (public.is_staff() or driver_id = auth.uid());
+
+-- Storage RLS for `pod-photos` (proof-of-delivery photos). Mirrors the
+-- `bol-photos`/`load-photos` policies exactly, joined through
+-- delivery_records instead of checklist_photos/checklists.
+create policy "pod-photos insert (drivers only)" on storage.objects for insert
+  with check (bucket_id = 'pod-photos' and public.is_driver());
+
+create policy "pod-photos select (owner, staff, or load's customer)" on storage.objects for select
+  using (
+    bucket_id = 'pod-photos'
+    and (
+      public.is_staff()
+      or exists (
+        select 1 from public.delivery_records d
+        where d.pod_storage_path = storage.objects.name
+          and (
+            d.driver_id = auth.uid()
+            or exists (
+              select 1 from public.loads l
+              where l.id = d.load_id and l.customer_company = public.current_customer_company()
+            )
+          )
+      )
+    )
+  );

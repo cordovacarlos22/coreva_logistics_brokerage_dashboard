@@ -28,10 +28,11 @@ Create these buckets under Storage (private, not public — access goes through 
 |---|---|
 | `bol-photos` | BOL paperwork photos (checklist step 5) |
 | `load-photos` | Load-secured photos — straps/wrap visible, pre-seal (checklist step 6) |
+| `pod-photos` | Proof-of-delivery photos (delivery flow) |
 | `signatures` | Driver signature images |
 | `damage-reports` | Discrepancy/equipment-damage photos |
 
-`checklist_photos.storage_path` and `checklist_signatures.signature_path` store the object path within these buckets, not a public URL.
+`checklist_photos.storage_path`, `delivery_records.pod_storage_path`, and `checklist_signatures.signature_path` store the object path within these buckets, not a public URL.
 
 ## 4. Realtime
 

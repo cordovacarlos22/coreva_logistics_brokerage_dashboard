@@ -790,3 +790,36 @@ create policy "pod-photos select (owner, staff, or load's customer)" on storage.
       )
     )
   );
+
+-- ============================================================================
+-- Driver App Phase 4 -- Load Request (driver-initiated availability).
+-- ============================================================================
+
+-- A driver with no active load can tell dispatch "I'm available today" and
+-- whether their trailer is currently empty -- distinct from the normal
+-- dispatch-assigns-a-load flow, which stays the only way an actual `loads`
+-- row gets a driver_id. Dispatch resolves each request (fulfilled/dismissed)
+-- from the web dashboard; nothing here writes to `loads` directly.
+create table public.load_requests (
+  id uuid primary key default gen_random_uuid(),
+  driver_id uuid not null references public.profiles (id),
+  wants_load_today boolean not null,
+  has_empty boolean not null,
+  status text not null default 'pending' check (status in ('pending', 'fulfilled', 'dismissed')),
+  resolved_at timestamptz,
+  resolved_by uuid references public.profiles (id),
+  created_at timestamptz not null default now()
+);
+
+create index load_requests_driver_id_idx on public.load_requests (driver_id);
+create index load_requests_pending_idx on public.load_requests (created_at) where status = 'pending';
+
+alter table public.load_requests enable row level security;
+
+create policy load_requests_select on public.load_requests for select
+  using (public.is_staff() or driver_id = auth.uid());
+create policy load_requests_insert on public.load_requests for insert
+  with check (driver_id = auth.uid());
+create policy load_requests_update on public.load_requests for update
+  using (public.is_staff())
+  with check (public.is_staff());

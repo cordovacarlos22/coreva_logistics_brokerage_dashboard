@@ -7,12 +7,15 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import AppShell from '../components/layout/AppShell.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import { fetchLoads, computeKpis } from '../lib/loads.js';
+import { fetchPendingLoadRequests, resolveLoadRequest } from '../lib/loadRequests.js';
 
 export default function LoadsOverview() {
   const { profile } = useAuth();
   const [loads, setLoads] = useState(null);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
+  const [loadRequests, setLoadRequests] = useState(null);
+  const [resolvingId, setResolvingId] = useState(null);
   const isStaff = profile?.role === 'admin' || profile?.role === 'dispatcher';
 
   useEffect(() => {
@@ -28,6 +31,32 @@ export default function LoadsOverview() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isStaff) return undefined;
+    let cancelled = false;
+    fetchPendingLoadRequests(supabase)
+      .then((data) => {
+        if (!cancelled) setLoadRequests(data);
+      })
+      .catch(() => {
+        // Non-critical panel -- if this fails, the main loads table (with
+        // its own error handling above) is still usable.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isStaff]);
+
+  async function handleResolve(id, status) {
+    setResolvingId(id);
+    try {
+      await resolveLoadRequest(supabase, id, status, profile.id);
+      setLoadRequests((current) => current.filter((request) => request.id !== id));
+    } finally {
+      setResolvingId(null);
+    }
+  }
 
   const kpis = loads ? computeKpis(loads, { isStaff }) : [];
   const columnCount = isStaff ? 8 : 6;
@@ -55,6 +84,45 @@ export default function LoadsOverview() {
         <p className="mt-4 rounded border border-status-dropped/30 bg-status-dropped/5 p-3 text-sm text-status-dropped">
           Couldn&apos;t load shipments: {error}
         </p>
+      )}
+
+      {isStaff && loadRequests?.length > 0 && (
+        <div className="mt-6 rounded border border-border bg-white p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-text/60">
+            Load Requests ({loadRequests.length})
+          </h2>
+          <ul className="mt-3 divide-y divide-border">
+            {loadRequests.map((request) => (
+              <li key={request.id} className="flex items-center justify-between gap-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-text">{request.driver?.full_name ?? 'Unknown driver'}</p>
+                  <p className="mt-0.5 text-xs text-text/60">
+                    Load today: {request.wants_load_today ? 'Yes' : 'No'} · Has empty:{' '}
+                    {request.has_empty ? 'Yes' : 'No'} · {new Date(request.created_at).toLocaleString()}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleResolve(request.id, 'fulfilled')}
+                    disabled={resolvingId === request.id}
+                    className="rounded border border-primary px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/5 disabled:opacity-50"
+                  >
+                    Fulfilled
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleResolve(request.id, 'dismissed')}
+                    disabled={resolvingId === request.id}
+                    className="rounded border border-border px-2.5 py-1 text-xs font-semibold text-text/70 hover:bg-surface disabled:opacity-50"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {!error && (

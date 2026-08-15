@@ -823,3 +823,42 @@ create policy load_requests_insert on public.load_requests for insert
 create policy load_requests_update on public.load_requests for update
   using (public.is_staff())
   with check (public.is_staff());
+
+-- ============================================================================
+-- Driver App Phase 5 -- Live GPS tracking.
+-- ============================================================================
+
+-- gps_pings_insert already lets a driver write their own pings directly,
+-- but trucks_write/trailers_write are staff-only (CLAUDE.md: drivers don't
+-- get general write access to fleet equipment records) -- a driver can't
+-- update trucks.current_lat/lng or trailers.current_lat/lng themselves.
+-- Rather than widening those policies (which would let a driver move *any*
+-- truck/trailer, not just the one on their own load), this narrow
+-- SECURITY DEFINER function does both writes (the ping history row, and
+-- the equipment's current position used by the Live Map) after verifying
+-- the caller actually is the driver on the given load.
+create function public.record_gps_ping(p_load_id uuid, p_lat double precision, p_lng double precision)
+returns void as $$
+declare
+  v_load public.loads;
+begin
+  select * into v_load from public.loads where id = p_load_id;
+
+  if v_load.id is null or v_load.driver_id is distinct from auth.uid() then
+    raise exception 'not authorized for this load';
+  end if;
+
+  insert into public.gps_pings (driver_id, load_id, trailer_id, lat, lng)
+  values (auth.uid(), p_load_id, v_load.trailer_id, p_lat, p_lng);
+
+  if v_load.truck_id is not null then
+    update public.trucks set current_lat = p_lat, current_lng = p_lng, last_ping_at = now()
+    where id = v_load.truck_id;
+  end if;
+
+  if v_load.trailer_id is not null then
+    update public.trailers set current_lat = p_lat, current_lng = p_lng, last_ping_at = now()
+    where id = v_load.trailer_id;
+  end if;
+end;
+$$ language plpgsql security definer set search_path = public;

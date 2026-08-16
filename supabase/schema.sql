@@ -887,3 +887,16 @@ join public.profiles on profiles.id = gps_pings.driver_id
 join public.loads on loads.id = gps_pings.load_id
 where loads.status not in ('delivered', 'dropped')
 order by gps_pings.driver_id, gps_pings.recorded_at desc;
+
+-- ============================================================================
+-- Driver App Phase 6 -- Chat push notifications.
+-- ============================================================================
+
+-- Expo push token for the driver's device. No new RLS policy needed --
+-- profiles_update already allows `id = auth.uid() or is_staff()`, so a
+-- driver can write their own token via a plain client-side update, same as
+-- everything else driver-owned in this app. Read via the backend's
+-- supabaseAdmin (service-role) client when sending a push, since the
+-- sender of a load_messages row (e.g. a customer) has no RLS access to
+-- another user's profile row, let alone their push token.
+alter table public.profiles add column expo_push_token text;

@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { Avatar, AvatarFallback } from '../ui/avatar.jsx';
+import NotificationBell from '../NotificationBell.jsx';
 
 function initials(name) {
   if (!name) return '?';
@@ -54,6 +55,7 @@ export default function AppShell({ children }) {
             {isStaff ? 'Coreva Logistics Brokerage' : profile?.customer_company}
           </p>
           <div className="flex items-center gap-3">
+            {isStaff && <NotificationBell />}
             <Avatar size="sm">
               <AvatarFallback>{initials(profile?.full_name)}</AvatarFallback>
             </Avatar>

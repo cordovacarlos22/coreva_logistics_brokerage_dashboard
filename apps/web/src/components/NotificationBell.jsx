@@ -78,7 +78,7 @@ export default function NotificationBell() {
         sileo.info({
           title: `New message from ${entry.senderName}`,
           description: `Load #${entry.loadNumber}: ${entry.body}`,
-          button: { title: 'View', onClick: () => navigate(`/loads/${entry.loadId}`) },
+          button: { title: 'View', onClick: () => navigate(`/loads/${entry.loadId}?tab=driver`) },
         });
       },
     });
@@ -102,7 +102,7 @@ export default function NotificationBell() {
 
   function handleSelect(entry) {
     setOpen(false);
-    navigate(`/loads/${entry.loadId}`);
+    navigate(`/loads/${entry.loadId}?tab=driver`);
   }
 
   return (

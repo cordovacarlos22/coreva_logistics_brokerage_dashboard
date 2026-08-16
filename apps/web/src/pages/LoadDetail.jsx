@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { sileo } from 'sileo';
 import { Skeleton } from 'boneyard-js/react';
 import { ThinkingOrb } from 'thinking-orbs';
@@ -474,7 +474,11 @@ function PodPhotoCard({ delivery }) {
 }
 
 function LoadMessages({ loadId, userId }) {
-  const [tab, setTab] = useState('dispatch');
+  // NotificationBell links here with ?tab=driver so clicking a driver-
+  // message notification lands directly on that thread instead of always
+  // defaulting to dispatch and making staff click over to find it.
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState(searchParams.get('tab') === 'driver' ? 'driver' : 'dispatch');
   const [messages, setMessages] = useState(null);
   const [error, setError] = useState(null);
 

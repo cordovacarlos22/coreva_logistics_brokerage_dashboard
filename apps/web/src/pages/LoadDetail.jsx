@@ -331,7 +331,7 @@ function BolVerificationCard({ load, isStaff, userId, onUpdated }) {
   );
 }
 
-function LoadMessages({ loadId, isStaff, userId }) {
+function LoadMessages({ loadId, userId }) {
   const [tab, setTab] = useState('dispatch');
   const [messages, setMessages] = useState(null);
   const [error, setError] = useState(null);
@@ -383,9 +383,7 @@ function LoadMessages({ loadId, isStaff, userId }) {
       </div>
 
       {tab === 'driver' && (
-        <p className="mb-3 text-xs text-text/60">
-          {isStaff ? 'Oversight view — messages ' : 'Messages '}delivered to the driver&apos;s mobile app.
-        </p>
+        <p className="mb-3 text-xs text-text/60">Messages delivered to the driver&apos;s mobile app.</p>
       )}
 
       {error && <p className="text-sm text-status-dropped">{error}</p>}
@@ -396,7 +394,6 @@ function LoadMessages({ loadId, isStaff, userId }) {
           onSend={handleSend}
           currentUserId={userId}
           emptyLabel="No messages yet."
-          readOnly={tab === 'driver' && isStaff}
         />
       )}
     </Card>
@@ -596,7 +593,7 @@ export default function LoadDetail() {
           )}
 
           <div className="mt-5">
-            <LoadMessages loadId={load.id} isStaff={isStaff} userId={user.id} />
+            <LoadMessages loadId={load.id} userId={user.id} />
           </div>
         </>
         )}

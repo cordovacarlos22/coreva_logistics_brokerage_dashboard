@@ -396,7 +396,11 @@ function LoadSecurityCheckCard({ photo, isStaff, onOverridden }) {
       {photo && (
         <>
           <div className="mb-3 flex items-center justify-between">
-            <ComplianceBadge status={photo.compliance_status} />
+            {photo.compliance_status ? (
+              <ComplianceBadge status={photo.compliance_status} />
+            ) : (
+              <span className="text-xs text-text/60">Not checked</span>
+            )}
             <span className="text-xs text-text/60">{formatDateTime(photo.uploaded_at)}</span>
           </div>
           {photoUrl && (

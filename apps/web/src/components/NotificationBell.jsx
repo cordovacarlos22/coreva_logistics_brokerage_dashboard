@@ -66,7 +66,7 @@ export default function NotificationBell() {
         .limit(MAX_HISTORY),
       supabase
         .from('driver_messages')
-        .select('id, driver_id, body, created_at, sender_id, sender:profiles(full_name)')
+        .select('id, driver_id, body, created_at, sender_id, sender:profiles!sender_id(full_name)')
         .order('created_at', { ascending: false })
         .limit(MAX_HISTORY),
     ]).then(([loadResult, driverResult]) => {
@@ -126,7 +126,7 @@ export default function NotificationBell() {
 
         const { data } = await supabase
           .from('driver_messages')
-          .select('id, driver_id, body, created_at, sender:profiles(full_name)')
+          .select('id, driver_id, body, created_at, sender:profiles!sender_id(full_name)')
           .eq('id', payload.new.id)
           .single();
         if (data) handleNewEntry(toDriverEntry(data));

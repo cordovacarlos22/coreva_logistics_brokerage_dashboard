@@ -33,7 +33,9 @@ export async function sendLoadMessage(supabaseClient, { loadId, channel, senderI
 export async function fetchDriverMessages(supabaseClient, driverId) {
   const { data, error } = await supabaseClient
     .from('driver_messages')
-    .select('*, sender:profiles(full_name)')
+    // driver_messages has two FKs to profiles (driver_id, sender_id) --
+    // !sender_id disambiguates which one this embed should follow.
+    .select('*, sender:profiles!sender_id(full_name)')
     .eq('driver_id', driverId)
     .order('created_at', { ascending: true });
   if (error) throw new Error(`driver_messages: ${error.message}`);

@@ -10,10 +10,11 @@ import {
   TRAILER_STATUS_FILTERS,
 } from '../lib/trailers.js';
 import { fetchTruckLocations, fetchActiveLoadsByTruck } from '../lib/trucks.js';
+import { fetchDriverLocations } from '../lib/drivers.js';
 
 const DEFAULT_CENTER = [-84.388, 33.749]; // Atlanta, GA
 
-const UNIT_TYPE_LABELS = { trailer: 'Trailer', truck: 'Truck' };
+const UNIT_TYPE_LABELS = { trailer: 'Trailer', truck: 'Truck', driver: 'Driver' };
 
 export default function MapView() {
   const [units, setUnits] = useState(null);
@@ -29,8 +30,9 @@ export default function MapView() {
       fetchActiveLoadsByTrailer(supabase),
       fetchTruckLocations(supabase),
       fetchActiveLoadsByTruck(supabase),
+      fetchDriverLocations(supabase),
     ])
-      .then(([trailerLocations, activeLoadByTrailerId, truckLocations, driverByTruckId]) => {
+      .then(([trailerLocations, activeLoadByTrailerId, truckLocations, driverByTruckId, driverLocations]) => {
         if (cancelled) return;
 
         const trailerUnits = trailerLocations.map((trailer) => ({
@@ -58,7 +60,23 @@ export default function MapView() {
           driverName: driverByTruckId.get(truck.id) ?? null,
         }));
 
-        setUnits([...trailerUnits, ...truckUnits]);
+        // A driver's own pin -- shows even when their load has no
+        // truck/trailer assigned yet (record_gps_ping only updates
+        // equipment when there's one to update), so a driver never goes
+        // invisible on the map just because dispatch hasn't assigned a
+        // unit. See driver_locations' comment in schema.sql.
+        const driverUnits = driverLocations.map((driver) => ({
+          id: driver.driver_id,
+          unitType: 'driver',
+          number: driver.full_name,
+          status: 'driver',
+          lat: driver.lat,
+          lng: driver.lng,
+          last_ping_at: driver.recorded_at,
+          driverName: null,
+        }));
+
+        setUnits([...trailerUnits, ...truckUnits, ...driverUnits]);
       })
       .catch((err) => {
         if (!cancelled) setError(err.message);
@@ -95,7 +113,7 @@ export default function MapView() {
   return (
     <AppShell>
       <h1 className="text-2xl font-semibold text-primary">Live Map</h1>
-      <p className="mt-1 text-sm text-text/70">Trailer and truck locations across the fleet.</p>
+      <p className="mt-1 text-sm text-text/70">Trailer, truck, and driver locations across the fleet.</p>
 
       {error && (
         <p className="mt-4 rounded border border-status-dropped/30 bg-status-dropped/5 p-3 text-sm text-status-dropped">

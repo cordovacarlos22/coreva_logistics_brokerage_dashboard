@@ -862,3 +862,28 @@ begin
   end if;
 end;
 $$ language plpgsql security definer set search_path = public;
+
+-- record_gps_ping only updates trucks/trailers when the load has one
+-- assigned -- a driver whose load has neither yet (dispatch hasn't
+-- assigned equipment) would otherwise never show up on the Live Map at
+-- all, despite actively pinging. This view surfaces the driver's own
+-- latest position directly instead, for any driver whose load is still
+-- active. security_invoker so it's scoped by the *querying* user's own
+-- RLS on gps_pings/profiles/loads, not the view owner's -- staff see
+-- every driver, a driver sees only themselves, a customer sees only
+-- drivers on their own company's loads, same as gps_pings_select already
+-- grants.
+create view public.driver_locations
+with (security_invoker = true) as
+select distinct on (gps_pings.driver_id)
+  gps_pings.driver_id,
+  gps_pings.load_id,
+  gps_pings.lat,
+  gps_pings.lng,
+  gps_pings.recorded_at,
+  profiles.full_name
+from public.gps_pings
+join public.profiles on profiles.id = gps_pings.driver_id
+join public.loads on loads.id = gps_pings.load_id
+where loads.status not in ('delivered', 'dropped')
+order by gps_pings.driver_id, gps_pings.recorded_at desc;

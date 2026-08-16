@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import MapView from './MapView.jsx';
 import { fetchTrailerLocations, fetchActiveLoadsByTrailer } from '../lib/trailers.js';
 import { fetchTruckLocations, fetchActiveLoadsByTruck } from '../lib/trucks.js';
+import { fetchDriverLocations } from '../lib/drivers.js';
 
 const flyTo = vi.fn();
 
@@ -22,6 +23,7 @@ vi.mock('../components/Map.jsx', () => ({
     in_use: '#2563eb',
     dropped: '#dc2626',
     maintenance: '#64748b',
+    driver: '#fd8b00',
   },
 }));
 
@@ -44,6 +46,10 @@ vi.mock('../lib/trailers.js', async () => {
 vi.mock('../lib/trucks.js', () => ({
   fetchTruckLocations: vi.fn(),
   fetchActiveLoadsByTruck: vi.fn(),
+}));
+
+vi.mock('../lib/drivers.js', () => ({
+  fetchDriverLocations: vi.fn(),
 }));
 
 const TRAILERS = [
@@ -73,6 +79,7 @@ beforeEach(() => {
   // combined-list test below overrides these with real truck fixtures.
   fetchTruckLocations.mockResolvedValue([]);
   fetchActiveLoadsByTruck.mockResolvedValue(new Map());
+  fetchDriverLocations.mockResolvedValue([]);
 });
 
 describe('MapView', () => {
@@ -138,6 +145,34 @@ describe('MapView', () => {
     const colors = Array.from(dots).map((dot) => dot.style.backgroundColor);
     expect(colors.filter((c) => c === 'rgb(37, 99, 235)')).toHaveLength(2); // in_use: 1 trailer + 1 truck
     expect(colors.filter((c) => c === 'rgb(22, 163, 74)')).toHaveLength(2); // available: 1 trailer + 1 truck
+  });
+
+  it('shows a driver pin even when their load has no truck/trailer assigned', async () => {
+    fetchTrailerLocations.mockResolvedValue([]);
+    fetchActiveLoadsByTrailer.mockResolvedValue(new Map());
+    fetchDriverLocations.mockResolvedValue([
+      {
+        driver_id: 'd1',
+        load_id: 'l1',
+        lat: 34.1418,
+        lng: -117.4529,
+        recorded_at: new Date(Date.now() - 2 * 60000).toISOString(),
+        full_name: 'Marcus Johnson',
+      },
+    ]);
+
+    const { container } = render(
+      <MemoryRouter>
+        <MapView />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('1 marker(s)')).toBeInTheDocument();
+    expect(screen.getByText('Driver Marcus Johnson')).toBeInTheDocument();
+    expect(screen.getByText(/2m ago/)).toBeInTheDocument();
+
+    const dots = container.querySelectorAll('span[aria-hidden="true"]');
+    expect(dots[0]).toHaveStyle({ backgroundColor: 'rgb(253, 139, 0)' });
   });
 
   it('filters the list by search text, matching trailer or truck number', async () => {

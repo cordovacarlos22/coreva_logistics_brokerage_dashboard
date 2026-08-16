@@ -22,6 +22,10 @@ export const MARKER_COLORS = {
   in_use: '#2563eb',
   dropped: '#dc2626',
   maintenance: '#64748b',
+  // Driver pins aren't trailer-status-keyed like the rest of this map --
+  // fixed to the app's brand orange so they read as their own category at
+  // a glance rather than looking like a stray trailer/truck status.
+  driver: '#fd8b00',
 };
 
 // Same glyphs already used for these concepts in AppShell's nav (Loads,
@@ -30,6 +34,7 @@ export const MARKER_COLORS = {
 const UNIT_ICONS = {
   truck: 'local_shipping',
   trailer: 'rv_hookup',
+  driver: 'person_pin_circle',
 };
 
 // maplibre's default teardrop pin only supports a flat color, not an icon --

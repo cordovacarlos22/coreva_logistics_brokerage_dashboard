@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import { MapLibreMap, Marker, Popup, NavigationControl, setWorkerUrl } from 'maplibre-gl';
+import { MapLibreMap, Marker, Popup, NavigationControl, LngLatBounds, setWorkerUrl } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 // maplibre-gl v6 parses tiles in a real ES module worker. Vite's default
 // bundling rewrites module paths and breaks that worker's own import of its
@@ -97,12 +97,19 @@ export const Map = forwardRef(function Map(
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markerObjectsRef = useRef([]);
+  // The fleet is scattered across the whole country -- without this, every
+  // page load starts at the fixed continent/country-level zoom prop and the
+  // user has to manually scroll-zoom in several times just to see anything.
+  // Only fits once: after that, it's the user's own pan/zoom to keep.
+  const hasFitInitialBoundsRef = useRef(false);
 
   useImperativeHandle(
     ref,
     () => ({
+      // 14 is street-level -- close enough to actually make out where a
+      // pin sits relative to roads/buildings, not just which city it's in.
       flyTo(lngLat, options = {}) {
-        mapRef.current?.flyTo({ center: lngLat, zoom: 10, ...options });
+        mapRef.current?.flyTo({ center: lngLat, zoom: 14, ...options });
       },
     }),
     []
@@ -144,6 +151,19 @@ export const Map = forwardRef(function Map(
       marker.addTo(map);
       return marker;
     });
+
+    if (!hasFitInitialBoundsRef.current && markers.length > 0) {
+      hasFitInitialBoundsRef.current = true;
+      if (markers.length === 1) {
+        map.jumpTo({ center: [markers[0].lng, markers[0].lat], zoom: 12 });
+      } else {
+        const bounds = markers.reduce(
+          (acc, marker) => acc.extend([marker.lng, marker.lat]),
+          new LngLatBounds([markers[0].lng, markers[0].lat], [markers[0].lng, markers[0].lat])
+        );
+        map.fitBounds(bounds, { padding: 60, maxZoom: 11 });
+      }
+    }
 
     return () => {
       markerObjectsRef.current.forEach((marker) => marker.remove());

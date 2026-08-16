@@ -3,18 +3,33 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import LoadDetail from './LoadDetail.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
-import { fetchLoadDetail, updateLoadConsignee, markBolVerified } from '../lib/loadDetail.js';
+import {
+  fetchLoadDetail,
+  updateLoadConsignee,
+  markBolVerified,
+  fetchLoadSecuredPhotoUrl,
+  overrideLoadSecuredCompliance,
+} from '../lib/loadDetail.js';
 import { fetchConsignees } from '../lib/consignees.js';
 
 vi.mock('../contexts/AuthContext.jsx', () => ({ useAuth: vi.fn() }));
 
-vi.mock('../lib/loadDetail.js', () => ({
-  fetchLoadDetail: vi.fn(),
-  addLoadNote: vi.fn(),
-  updateLoadConsignee: vi.fn(),
-  updateBolFields: vi.fn(),
-  markBolVerified: vi.fn(),
-}));
+vi.mock('../lib/loadDetail.js', async () => {
+  // latestLoadSecuredPhoto is a pure function over fixture data -- keep the
+  // real implementation rather than mocking it in every test. Only the
+  // functions that do actual network/storage I/O are mocked.
+  const actual = await vi.importActual('../lib/loadDetail.js');
+  return {
+    ...actual,
+    fetchLoadDetail: vi.fn(),
+    addLoadNote: vi.fn(),
+    updateLoadConsignee: vi.fn(),
+    updateBolFields: vi.fn(),
+    markBolVerified: vi.fn(),
+    fetchLoadSecuredPhotoUrl: vi.fn(),
+    overrideLoadSecuredCompliance: vi.fn(),
+  };
+});
 
 vi.mock('../lib/consignees.js', () => ({
   fetchConsignees: vi.fn(),
@@ -140,6 +155,51 @@ describe('LoadDetail', () => {
       })
     );
     expect(await screen.findByText('Dispatch Verified')).toBeInTheDocument();
+  });
+
+  it('shows a failed load security check and lets dispatch override it', async () => {
+    fetchLoadDetail.mockResolvedValue({
+      ...BASE_DETAIL,
+      checklists: [
+        {
+          id: 'checklist-1',
+          status: 'in_progress',
+          driver: { full_name: 'Marcus Johnson' },
+          signed_at: null,
+          sealed_at: null,
+          seal_number: null,
+          checklist_photos: [
+            {
+              id: 'photo-1',
+              type: 'load_secured',
+              storage_path: 'checklist-1/load-secured-1.jpg',
+              compliance_status: 'fail',
+              compliance_reason: 'No straps or wrap are visible over the load.',
+              uploaded_at: '2026-08-16T00:00:00Z',
+            },
+          ],
+        },
+      ],
+    });
+    fetchLoadSecuredPhotoUrl.mockResolvedValue('https://example.com/signed-url.jpg');
+    overrideLoadSecuredCompliance.mockResolvedValue({
+      id: 'photo-1',
+      type: 'load_secured',
+      storage_path: 'checklist-1/load-secured-1.jpg',
+      compliance_status: 'overridden',
+      compliance_reason: 'No straps or wrap are visible over the load.',
+      uploaded_at: '2026-08-16T00:00:00Z',
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('Fail')).toBeInTheDocument();
+    expect(screen.getByText('No straps or wrap are visible over the load.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Override — Mark Compliant' }));
+
+    await waitFor(() => expect(overrideLoadSecuredCompliance).toHaveBeenCalledWith('photo-1'));
+    expect(await screen.findByText('Overridden (Dispatch)')).toBeInTheDocument();
   });
 
   it('shows the customer read-only for a customer-role login, with no Change control', async () => {

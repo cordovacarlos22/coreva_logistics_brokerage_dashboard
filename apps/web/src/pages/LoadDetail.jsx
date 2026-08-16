@@ -8,7 +8,16 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import AppShell from '../components/layout/AppShell.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import ChatPanel from '../components/ChatPanel.jsx';
-import { fetchLoadDetail, addLoadNote, updateLoadConsignee, markBolVerified, updateBolFields } from '../lib/loadDetail.js';
+import {
+  fetchLoadDetail,
+  addLoadNote,
+  updateLoadConsignee,
+  markBolVerified,
+  updateBolFields,
+  latestLoadSecuredPhoto,
+  fetchLoadSecuredPhotoUrl,
+  overrideLoadSecuredCompliance,
+} from '../lib/loadDetail.js';
 import { fetchConsignees, createConsignee } from '../lib/consignees.js';
 import { fetchLoadMessages, sendLoadMessage, subscribeToInserts } from '../lib/chat.js';
 import {
@@ -331,6 +340,86 @@ function BolVerificationCard({ load, isStaff, userId, onUpdated }) {
   );
 }
 
+const COMPLIANCE_LABELS = { pass: 'Pass', fail: 'Fail', overridden: 'Overridden (Dispatch)' };
+const COMPLIANCE_STYLES = {
+  pass: 'bg-status-delivered',
+  fail: 'bg-status-dropped',
+  overridden: 'bg-status-in-transit',
+};
+
+function ComplianceBadge({ status }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-badge px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-white ${
+        COMPLIANCE_STYLES[status] ?? 'bg-status-assigned'
+      }`}
+    >
+      {COMPLIANCE_LABELS[status] ?? status}
+    </span>
+  );
+}
+
+// AI compliance check (single criterion: straps/wrap visibly crossing the
+// load) runs server-side when the driver takes the load-secured photo --
+// see coreva_logistics_brokerage_dashboard_back_end's vision module. A
+// 'fail' hard-gates the driver from sealing until they retake and pass, or
+// dispatch overrides it here.
+function LoadSecurityCheckCard({ photo, isStaff, onOverridden }) {
+  const [photoUrl, setPhotoUrl] = useState(null);
+  const [error, setError] = useState(null);
+  const [overriding, setOverriding] = useState(false);
+
+  useEffect(() => {
+    if (!photo) return;
+    fetchLoadSecuredPhotoUrl(supabase, photo.storage_path)
+      .then(setPhotoUrl)
+      .catch((err) => setError(err.message));
+  }, [photo]);
+
+  async function handleOverride() {
+    setOverriding(true);
+    setError(null);
+    try {
+      const updated = await overrideLoadSecuredCompliance(photo.id);
+      onOverridden(updated);
+      sileo.success({ title: 'Marked compliant' });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setOverriding(false);
+    }
+  }
+
+  return (
+    <Card title="Load Security Check">
+      {!photo && <p className="text-sm text-text/60">No load-secured photo yet.</p>}
+      {photo && (
+        <>
+          <div className="mb-3 flex items-center justify-between">
+            <ComplianceBadge status={photo.compliance_status} />
+            <span className="text-xs text-text/60">{formatDateTime(photo.uploaded_at)}</span>
+          </div>
+          {photoUrl && (
+            <img src={photoUrl} alt="Load secured" className="mb-3 w-full rounded border border-border" />
+          )}
+          {photo.compliance_reason && <p className="text-sm text-text/70">{photo.compliance_reason}</p>}
+          {error && <p className="mt-2 text-sm text-status-dropped">{error}</p>}
+          {isStaff && photo.compliance_status === 'fail' && (
+            <button
+              type="button"
+              onClick={handleOverride}
+              disabled={overriding}
+              className="mt-4 rounded bg-status-delivered px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:opacity-90 disabled:opacity-60"
+            >
+              {overriding ? 'Overriding…' : 'Override — Mark Compliant'}
+            </button>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
 function LoadMessages({ loadId, userId }) {
   const [tab, setTab] = useState('dispatch');
   const [messages, setMessages] = useState(null);
@@ -412,6 +501,23 @@ export default function LoadDetail() {
   const [submittingNote, setSubmittingNote] = useState(false);
 
   const load = detail?.load;
+  // The most recently-submitted checklist's most recent load_secured
+  // photo -- that's the one that actually gates the driver's ability to
+  // seal, so it's the one worth showing here.
+  const latestChecklist = detail?.checklists?.[detail.checklists.length - 1];
+  const latestSecuredPhoto = latestChecklist ? latestLoadSecuredPhoto(latestChecklist) : null;
+
+  function handlePhotoOverridden(updatedPhoto) {
+    setDetail((prev) => ({
+      ...prev,
+      checklists: prev.checklists.map((checklist) => ({
+        ...checklist,
+        checklist_photos: (checklist.checklist_photos ?? []).map((p) =>
+          p.id === updatedPhoto.id ? updatedPhoto : p
+        ),
+      })),
+    }));
+  }
 
   const refresh = useCallback(() => {
     fetchLoadDetail(supabase, id)
@@ -496,6 +602,12 @@ export default function LoadDetail() {
               isStaff={isStaff}
               userId={user.id}
               onUpdated={(patch) => setDetail((prev) => ({ ...prev, load: { ...prev.load, ...patch } }))}
+            />
+
+            <LoadSecurityCheckCard
+              photo={latestSecuredPhoto}
+              isStaff={isStaff}
+              onOverridden={handlePhotoOverridden}
             />
 
             <Card title="Route">

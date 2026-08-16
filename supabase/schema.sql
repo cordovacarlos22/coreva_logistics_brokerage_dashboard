@@ -921,3 +921,26 @@ create policy profiles_select_via_load_messages on public.profiles for select
         )
     )
   );
+
+-- ============================================================================
+-- Driver App Phase 7 -- AI load-secured photo compliance check.
+-- ============================================================================
+
+-- Step 6 (Photograph the Strapped Load) currently just needs a
+-- checklist_photos row to exist to unlock step 7 (Seal the Trailer) -- no
+-- compliance check at all. These columns hold the AI vision verdict
+-- (single criterion: straps/wrap visibly crossing over the load) plus a
+-- dispatch override trail. No new RLS policy needed -- every write to
+-- these columns happens via the backend's supabaseAdmin (service-role)
+-- client, which already bypasses RLS: the verdict is set at INSERT time
+-- by the new /api/vision/load-secured route (mirrors /api/ocr/bol's
+-- "backend does the AI work and inserts the row" pattern), and the
+-- override is a backend-route write too, not a client-side RLS update
+-- (checklist_photos has no UPDATE policy at all today, by design).
+create type public.compliance_status as enum ('pass', 'fail', 'overridden');
+
+alter table public.checklist_photos
+  add column compliance_status public.compliance_status,
+  add column compliance_reason text,
+  add column overridden_at timestamptz,
+  add column overridden_by uuid references public.profiles (id);

@@ -106,10 +106,10 @@ export const Map = forwardRef(function Map(
   useImperativeHandle(
     ref,
     () => ({
-      // 14 is street-level -- close enough to actually make out where a
-      // pin sits relative to roads/buildings, not just which city it's in.
+      // 16 is close to building-level -- as far in as clicking a pin should
+      // go, right up against the point itself.
       flyTo(lngLat, options = {}) {
-        mapRef.current?.flyTo({ center: lngLat, zoom: 14, ...options });
+        mapRef.current?.flyTo({ center: lngLat, zoom: 16, ...options });
       },
     }),
     []
@@ -123,6 +123,13 @@ export const Map = forwardRef(function Map(
       style,
       center,
       zoom,
+      // The fleet is US-only for now -- clamp panning/zooming to the
+      // continental US (plus a little margin) so the map never drifts into
+      // loading tiles for countries nothing in this app operates in.
+      maxBounds: [
+        [-130, 22],
+        [-64, 52],
+      ],
     });
     map.addControl(new NavigationControl(), 'bottom-right');
     mapRef.current = map;

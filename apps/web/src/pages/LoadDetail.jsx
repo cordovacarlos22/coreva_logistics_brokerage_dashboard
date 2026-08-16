@@ -642,7 +642,7 @@ export default function LoadDetail() {
             <StatusBadge status={load.status} />
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <div className="mt-6 grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
             <Card title="Core Details">
               <CustomerField
                 load={load}

@@ -7,12 +7,24 @@ import { subscribeToInserts } from '../lib/chat.js';
 import { formatRelativeTime } from '../lib/trailers.js';
 
 const MAX_HISTORY = 20;
+const LAST_SEEN_KEY = 'coreva-notification-bell-last-seen-at';
 
-// Staff-only live indicator for new driver-channel messages -- an
-// in-session history (cleared on reload), not a durable per-staff
-// read-state (no unread-tracking schema exists anywhere in this app yet).
-// Solves the actual complaint ("I don't see messages coming through")
-// without one.
+function toEntry(row) {
+  return {
+    id: row.id,
+    loadId: row.load_id,
+    loadNumber: row.load?.load_number ?? '—',
+    senderName: row.sender?.full_name ?? 'driver',
+    body: row.body,
+    createdAt: row.created_at,
+  };
+}
+
+// Staff-only live indicator for new driver-channel messages. History and
+// unread count are both derived from load_messages itself (already
+// durable) plus a localStorage "last seen" timestamp -- not a database
+// read-state table, but not purely in-memory either, so a page refresh no
+// longer wipes out what was there a moment ago.
 export default function NotificationBell() {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -20,6 +32,24 @@ export default function NotificationBell() {
   const navigate = useNavigate();
   const containerRef = useRef(null);
   const { user } = useAuth();
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('load_messages')
+      .select('id, load_id, body, created_at, sender_id, load:loads(load_number), sender:profiles(full_name)')
+      .eq('channel', 'driver')
+      .order('created_at', { ascending: false })
+      .limit(MAX_HISTORY)
+      .then(({ data }) => {
+        if (!data) return;
+        const entries = data.filter((row) => row.sender_id !== user.id).map(toEntry);
+        setNotifications(entries);
+
+        const lastSeenAt = localStorage.getItem(LAST_SEEN_KEY);
+        setUnreadCount(entries.filter((entry) => !lastSeenAt || entry.createdAt > lastSeenAt).length);
+      });
+  }, [user]);
 
   useEffect(() => {
     const unsubscribe = subscribeToInserts(supabase, {
@@ -36,20 +66,12 @@ export default function NotificationBell() {
         // than a bare id.
         const { data } = await supabase
           .from('load_messages')
-          .select('load_id, body, created_at, load:loads(load_number), sender:profiles(full_name)')
+          .select('id, load_id, body, created_at, load:loads(load_number), sender:profiles(full_name)')
           .eq('id', payload.new.id)
           .single();
         if (!data) return;
 
-        const entry = {
-          id: payload.new.id,
-          loadId: data.load_id,
-          loadNumber: data.load?.load_number ?? '—',
-          senderName: data.sender?.full_name ?? 'driver',
-          body: data.body,
-          createdAt: data.created_at,
-        };
-
+        const entry = toEntry(data);
         setNotifications((current) => [entry, ...current].slice(0, MAX_HISTORY));
         setUnreadCount((n) => n + 1);
 
@@ -75,6 +97,7 @@ export default function NotificationBell() {
   function handleToggle() {
     setOpen((wasOpen) => !wasOpen);
     setUnreadCount(0);
+    localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString());
   }
 
   function handleSelect(entry) {
@@ -105,7 +128,7 @@ export default function NotificationBell() {
           </div>
           <div className="max-h-96 overflow-y-auto">
             {notifications.length === 0 && (
-              <p className="px-4 py-6 text-center text-sm text-text/60">No messages this session yet.</p>
+              <p className="px-4 py-6 text-center text-sm text-text/60">No messages yet.</p>
             )}
             {notifications.map((entry) => (
               <button

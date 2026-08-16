@@ -8,6 +8,7 @@ import AppShell from '../components/layout/AppShell.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import { fetchLoads, computeKpis } from '../lib/loads.js';
 import { fetchPendingLoadRequests, resolveLoadRequest } from '../lib/loadRequests.js';
+import { subscribeToInserts } from '../lib/chat.js';
 
 export default function LoadsOverview() {
   const { profile } = useAuth();
@@ -35,16 +36,23 @@ export default function LoadsOverview() {
   useEffect(() => {
     if (!isStaff) return undefined;
     let cancelled = false;
-    fetchPendingLoadRequests(supabase)
-      .then((data) => {
-        if (!cancelled) setLoadRequests(data);
-      })
-      .catch(() => {
-        // Non-critical panel -- if this fails, the main loads table (with
-        // its own error handling above) is still usable.
-      });
+
+    function refresh() {
+      fetchPendingLoadRequests(supabase)
+        .then((data) => {
+          if (!cancelled) setLoadRequests(data);
+        })
+        .catch(() => {
+          // Non-critical panel -- if this fails, the main loads table (with
+          // its own error handling above) is still usable.
+        });
+    }
+
+    refresh();
+    const unsubscribe = subscribeToInserts(supabase, { table: 'load_requests', onInsert: refresh });
     return () => {
       cancelled = true;
+      unsubscribe();
     };
   }, [isStaff]);
 

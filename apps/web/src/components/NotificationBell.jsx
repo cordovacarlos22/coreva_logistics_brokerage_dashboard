@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { sileo } from 'sileo';
 import { supabase } from '../lib/supabaseClient.js';
+import { useAuth } from '../contexts/AuthContext.jsx';
 import { subscribeToInserts } from '../lib/chat.js';
 import { formatRelativeTime } from '../lib/trailers.js';
 
@@ -18,12 +19,17 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const containerRef = useRef(null);
+  const { user } = useAuth();
 
   useEffect(() => {
     const unsubscribe = subscribeToInserts(supabase, {
       table: 'load_messages',
       filter: 'channel=eq.driver',
       onInsert: async (payload) => {
+        // Staff can now reply in this channel too (see LoadDetail.jsx) --
+        // don't notify someone about the message they just sent themself.
+        if (payload.new.sender_id === user?.id) return;
+
         // Realtime payloads don't include joined columns (same caveat
         // lib/chat.js's subscribeToInserts already documents) -- fetch
         // this one row with load/sender joined so the entry reads as more
@@ -55,7 +61,7 @@ export default function NotificationBell() {
       },
     });
     return unsubscribe;
-  }, [navigate]);
+  }, [navigate, user]);
 
   useEffect(() => {
     if (!open) return undefined;

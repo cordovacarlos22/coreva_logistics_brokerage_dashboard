@@ -900,3 +900,24 @@ order by gps_pings.driver_id, gps_pings.recorded_at desc;
 -- sender of a load_messages row (e.g. a customer) has no RLS access to
 -- another user's profile row, let alone their push token.
 alter table public.profiles add column expo_push_token text;
+
+-- profiles_select only allows reading your own row or being staff -- fine
+-- until chat messages started rendering a `sender:profiles(full_name)`
+-- embed for *other* people. A driver couldn't read a dispatcher's (or
+-- customer's) name, so replies showed up as "Unknown" (same gap would hit
+-- a customer reading a driver's name). This mirrors load_messages_select's
+-- own visibility rule exactly: if you can already see a load_messages row
+-- (per that policy), you can also see who sent it.
+create policy profiles_select_via_load_messages on public.profiles for select
+  using (
+    exists (
+      select 1 from public.load_messages lm
+      join public.loads l on l.id = lm.load_id
+      where lm.sender_id = profiles.id
+        and (
+          public.is_staff()
+          or l.customer_company = public.current_customer_company()
+          or (lm.channel = 'driver' and l.driver_id = auth.uid())
+        )
+    )
+  );

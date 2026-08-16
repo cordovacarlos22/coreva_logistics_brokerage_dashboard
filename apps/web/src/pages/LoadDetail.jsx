@@ -17,6 +17,10 @@ import {
   latestLoadSecuredPhoto,
   fetchLoadSecuredPhotoUrl,
   overrideLoadSecuredCompliance,
+  latestBolPhoto,
+  fetchBolPhotoUrl,
+  latestPodPhoto,
+  fetchPodPhotoUrl,
 } from '../lib/loadDetail.js';
 import { fetchConsignees, createConsignee } from '../lib/consignees.js';
 import { fetchLoadMessages, sendLoadMessage, subscribeToInserts } from '../lib/chat.js';
@@ -195,11 +199,22 @@ function VerificationBadge({ status }) {
 // dispatch's way to review/correct a bad OCR read and confirm the record,
 // same "clone the inline-edit pattern" approach as CustomerField above, just
 // several fields at once instead of one.
-function BolVerificationCard({ load, isStaff, userId, onUpdated }) {
+function BolVerificationCard({ load, photo, isStaff, userId, onUpdated }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
+  const [photoUrl, setPhotoUrl] = useState(null);
+  const [photoError, setPhotoError] = useState(null);
+
+  // This card only ever showed the OCR'd fields, never the photo itself --
+  // same signed-URL pattern LoadSecurityCheckCard already uses below.
+  useEffect(() => {
+    if (!photo) return;
+    fetchBolPhotoUrl(supabase, photo.storage_path)
+      .then(setPhotoUrl)
+      .catch((err) => setPhotoError(err.message));
+  }, [photo]);
 
   function startEditing() {
     setFormError(null);
@@ -260,6 +275,10 @@ function BolVerificationCard({ load, isStaff, userId, onUpdated }) {
           <span className="text-xs text-text/60">{formatDateTime(load.bol_verified_at)}</span>
         )}
       </div>
+
+      {photoUrl && <img src={photoUrl} alt="BOL" className="mb-3 w-full rounded border border-border" />}
+      {!photo && <p className="mb-3 text-sm text-text/60">No BOL photo yet.</p>}
+      {photoError && <p className="mb-3 text-sm text-status-dropped">{photoError}</p>}
 
       {!editing ? (
         <>
@@ -424,6 +443,36 @@ function LoadSecurityCheckCard({ photo, isStaff, onOverridden }) {
   );
 }
 
+function PodPhotoCard({ delivery }) {
+  const [photoUrl, setPhotoUrl] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!delivery?.pod_storage_path) return;
+    fetchPodPhotoUrl(supabase, delivery.pod_storage_path)
+      .then(setPhotoUrl)
+      .catch((err) => setError(err.message));
+  }, [delivery]);
+
+  return (
+    <Card title="Proof of Delivery">
+      {!delivery?.pod_storage_path && <p className="text-sm text-text/60">No POD photo yet.</p>}
+      {delivery?.pod_storage_path && (
+        <>
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-xs text-text/60">{delivery.driver?.full_name}</span>
+            <span className="text-xs text-text/60">{formatDateTime(delivery.unloaded_at)}</span>
+          </div>
+          {photoUrl && (
+            <img src={photoUrl} alt="Proof of delivery" className="mb-3 w-full rounded border border-border" />
+          )}
+          {error && <p className="mt-2 text-sm text-status-dropped">{error}</p>}
+        </>
+      )}
+    </Card>
+  );
+}
+
 function LoadMessages({ loadId, userId }) {
   const [tab, setTab] = useState('dispatch');
   const [messages, setMessages] = useState(null);
@@ -510,6 +559,8 @@ export default function LoadDetail() {
   // seal, so it's the one worth showing here.
   const latestChecklist = detail?.checklists?.[detail.checklists.length - 1];
   const latestSecuredPhoto = latestChecklist ? latestLoadSecuredPhoto(latestChecklist) : null;
+  const latestBol = latestChecklist ? latestBolPhoto(latestChecklist) : null;
+  const latestPod = latestPodPhoto(detail?.deliveries);
 
   function handlePhotoOverridden(updatedPhoto) {
     setDetail((prev) => ({
@@ -603,6 +654,7 @@ export default function LoadDetail() {
 
             <BolVerificationCard
               load={load}
+              photo={latestBol}
               isStaff={isStaff}
               userId={user.id}
               onUpdated={(patch) => setDetail((prev) => ({ ...prev, load: { ...prev.load, ...patch } }))}
@@ -613,6 +665,8 @@ export default function LoadDetail() {
               isStaff={isStaff}
               onOverridden={handlePhotoOverridden}
             />
+
+            <PodPhotoCard delivery={latestPod} />
 
             <Card title="Route">
               <Field label="Origin" value={load.origin_address} />

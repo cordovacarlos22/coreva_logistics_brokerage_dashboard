@@ -8,7 +8,7 @@ function unwrap(label) {
 }
 
 export async function fetchLoadDetail(supabaseClient, loadId) {
-  const [load, stops, checklists, discrepancies, notes] = await Promise.all([
+  const [load, stops, checklists, discrepancies, notes, deliveries] = await Promise.all([
     supabaseClient
       .from('loads')
       .select(
@@ -42,9 +42,15 @@ export async function fetchLoadDetail(supabaseClient, loadId) {
       .eq('load_id', loadId)
       .order('created_at', { ascending: true })
       .then(unwrap('load_notes')),
+    supabaseClient
+      .from('delivery_records')
+      .select('*, driver:profiles(full_name)')
+      .eq('load_id', loadId)
+      .order('created_at', { ascending: true })
+      .then(unwrap('delivery_records')),
   ]);
 
-  return { load, stops, checklists, discrepancies, notes };
+  return { load, stops, checklists, discrepancies, notes, deliveries };
 }
 
 export async function addLoadNote(supabaseClient, { loadId, authorId, body }) {
@@ -115,6 +121,36 @@ export function latestLoadSecuredPhoto(checklist) {
 export async function fetchLoadSecuredPhotoUrl(supabaseClient, storagePath) {
   const { data, error } = await supabaseClient.storage.from('load-photos').createSignedUrl(storagePath, 300);
   if (error) throw new Error(`load-photos signed url: ${error.message}`);
+  return data.signedUrl;
+}
+
+// Same "most recent wins" reasoning as latestLoadSecuredPhoto above -- a
+// checklist can have more than one 'bol' photo (a retake), and this page
+// never showed the photo itself before, only the OCR'd fields.
+export function latestBolPhoto(checklist) {
+  const photos = (checklist?.checklist_photos ?? []).filter((p) => p.type === 'bol');
+  if (photos.length === 0) return null;
+  return photos.reduce((latest, p) => (p.uploaded_at > latest.uploaded_at ? p : latest));
+}
+
+export async function fetchBolPhotoUrl(supabaseClient, storagePath) {
+  const { data, error } = await supabaseClient.storage.from('bol-photos').createSignedUrl(storagePath, 300);
+  if (error) throw new Error(`bol-photos signed url: ${error.message}`);
+  return data.signedUrl;
+}
+
+// delivery_records is unique per (load_id, driver_id) -- more than one row
+// only happens if more than one driver touched this load's delivery leg.
+// pod_storage_path is only set once the driver's actually uploaded it.
+export function latestPodPhoto(deliveries) {
+  const records = (deliveries ?? []).filter((d) => d.pod_storage_path);
+  if (records.length === 0) return null;
+  return records.reduce((latest, d) => (d.created_at > latest.created_at ? d : latest));
+}
+
+export async function fetchPodPhotoUrl(supabaseClient, storagePath) {
+  const { data, error } = await supabaseClient.storage.from('pod-photos').createSignedUrl(storagePath, 300);
+  if (error) throw new Error(`pod-photos signed url: ${error.message}`);
   return data.signedUrl;
 }
 

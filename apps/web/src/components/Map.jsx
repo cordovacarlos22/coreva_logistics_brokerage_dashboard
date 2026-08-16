@@ -155,6 +155,13 @@ export const Map = forwardRef(function Map(
         markerData.lat,
       ]);
       marker.setPopup(new Popup({ offset: 20 }).setDOMContent(buildPopupContent(markerData)));
+      // Marker's default click behavior only toggles its popup -- it
+      // doesn't move the camera. Fly in too, same zoom as the sidebar
+      // list's click-to-select, so clicking the pin itself gets just as
+      // close a look, not only a name/status bubble.
+      marker.getElement().addEventListener('click', () => {
+        map.flyTo({ center: [markerData.lng, markerData.lat], zoom: 16 });
+      });
       marker.addTo(map);
       return marker;
     });

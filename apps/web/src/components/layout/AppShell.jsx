@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { to: '/trailers', label: 'Trailers', icon: 'rv_hookup', staffOnly: true },
   { to: '/analytics', label: 'Analytics', icon: 'analytics', staffOnly: false },
   { to: '/team-chat', label: 'Team Chat', icon: 'forum', staffOnly: true },
+  { to: '/driver-messages', label: 'Driver Messages', icon: 'sms', staffOnly: true },
 ];
 
 export default function AppShell({ children }) {

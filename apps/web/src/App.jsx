@@ -7,6 +7,7 @@ import Login from './pages/Login.jsx';
 import LoadsOverview from './pages/LoadsOverview.jsx';
 import LoadDetail from './pages/LoadDetail.jsx';
 import TeamChat from './pages/TeamChat.jsx';
+import DriverMessages from './pages/DriverMessages.jsx';
 import MapView from './pages/MapView.jsx';
 import Trailers from './pages/Trailers.jsx';
 import Analytics from './pages/Analytics.jsx';
@@ -40,6 +41,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <TeamChat />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/driver-messages"
+            element={
+              <ProtectedRoute>
+                <DriverMessages />
               </ProtectedRoute>
             }
           />

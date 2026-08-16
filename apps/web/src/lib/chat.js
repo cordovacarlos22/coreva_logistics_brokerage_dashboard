@@ -30,7 +30,24 @@ export async function sendLoadMessage(supabaseClient, { loadId, channel, senderI
   if (error) throw new Error(`load_messages insert: ${error.message}`);
 }
 
-// Generic "notify me when a new row lands" helper shared by both chat
+export async function fetchDriverMessages(supabaseClient, driverId) {
+  const { data, error } = await supabaseClient
+    .from('driver_messages')
+    .select('*, sender:profiles(full_name)')
+    .eq('driver_id', driverId)
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(`driver_messages: ${error.message}`);
+  return data;
+}
+
+export async function sendDriverMessage(supabaseClient, { driverId, senderId, body }) {
+  const { error } = await supabaseClient
+    .from('driver_messages')
+    .insert({ driver_id: driverId, sender_id: senderId, body });
+  if (error) throw new Error(`driver_messages insert: ${error.message}`);
+}
+
+// Generic "notify me when a new row lands" helper shared by all three chat
 // surfaces. Realtime payloads don't include joined columns, so callers
 // re-fetch the full (joined) list on each insert rather than trying to
 // merge partial rows -- message volume here is low enough that this is

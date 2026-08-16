@@ -580,6 +580,41 @@ create policy load_messages_insert on public.load_messages for insert
     )
   );
 
+-- driver_messages: dispatch <-> driver, load-independent (a Load Request
+-- has no load_id yet, and messaging a driver shouldn't require navigating
+-- into one of their loads either). One shared thread per driver -- all
+-- staff see and can post in it, same "oversight" reasoning as
+-- load_messages' dispatch channel, not a per-staff-member DM.
+create table public.driver_messages (
+  id uuid primary key default gen_random_uuid(),
+  driver_id uuid not null references public.profiles (id),
+  sender_id uuid not null references public.profiles (id),
+  body text not null,
+  created_at timestamptz not null default now()
+);
+
+create index driver_messages_driver_id_created_at_idx on public.driver_messages (driver_id, created_at);
+
+alter table public.driver_messages enable row level security;
+
+create policy driver_messages_select on public.driver_messages for select
+  using (public.is_staff() or driver_id = auth.uid());
+
+create policy driver_messages_insert on public.driver_messages for insert
+  with check (sender_id = auth.uid() and (public.is_staff() or driver_id = auth.uid()));
+
+-- Mirrors profiles_select_via_load_messages below -- lets a driver see the
+-- staff sender's name (and vice versa) for a thread they share, since a
+-- driver otherwise has no RLS visibility into other profiles.
+create policy profiles_select_via_driver_messages on public.profiles for select
+  using (
+    exists (
+      select 1 from public.driver_messages dm
+      where dm.sender_id = profiles.id
+        and (public.is_staff() or dm.driver_id = auth.uid())
+    )
+  );
+
 -- ============================================================================
 -- Storage RLS -- `load-photos` bucket (supabase/README.md's Storage Buckets
 -- table). The bucket itself must still be created by hand in the Supabase

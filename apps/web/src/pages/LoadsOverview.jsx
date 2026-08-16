@@ -110,6 +110,12 @@ export default function LoadsOverview() {
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-2">
+                  <Link
+                    to={`/driver-messages?driver=${request.driver_id}`}
+                    className="rounded border border-border px-2.5 py-1 text-xs font-semibold text-text/70 hover:bg-surface"
+                  >
+                    Message
+                  </Link>
                   <button
                     type="button"
                     onClick={() => handleResolve(request.id, 'fulfilled')}

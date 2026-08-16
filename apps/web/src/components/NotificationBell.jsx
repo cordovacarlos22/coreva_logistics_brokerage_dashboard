@@ -9,9 +9,10 @@ import { formatRelativeTime } from '../lib/trailers.js';
 const MAX_HISTORY = 20;
 const LAST_SEEN_KEY = 'coreva-notification-bell-last-seen-at';
 
-function toEntry(row) {
+function toLoadEntry(row) {
   return {
     id: row.id,
+    kind: 'load',
     loadId: row.load_id,
     loadNumber: row.load?.load_number ?? '—',
     senderName: row.sender?.full_name ?? 'driver',
@@ -20,8 +21,29 @@ function toEntry(row) {
   };
 }
 
-// Staff-only live indicator for new driver-channel messages. History and
-// unread count are both derived from load_messages itself (already
+function toDriverEntry(row) {
+  return {
+    id: row.id,
+    kind: 'driver',
+    driverId: row.driver_id,
+    senderName: row.sender?.full_name ?? 'driver',
+    body: row.body,
+    createdAt: row.created_at,
+  };
+}
+
+function entryHref(entry) {
+  return entry.kind === 'driver' ? `/driver-messages?driver=${entry.driverId}` : `/loads/${entry.loadId}?tab=driver`;
+}
+
+function entryDescription(entry) {
+  return entry.kind === 'driver' ? entry.body : `Load #${entry.loadNumber}: ${entry.body}`;
+}
+
+// Staff-only live indicator for new messages from a driver -- merges two
+// sources: load_messages' driver channel (per-load, see LoadDetail.jsx)
+// and driver_messages (load-independent, see DriverMessages.jsx). History
+// and unread count are derived from both tables directly (already
 // durable) plus a localStorage "last seen" timestamp -- not a database
 // read-state table, but not purely in-memory either, so a page refresh no
 // longer wipes out what was there a moment ago.
@@ -35,24 +57,48 @@ export default function NotificationBell() {
 
   useEffect(() => {
     if (!user) return;
-    supabase
-      .from('load_messages')
-      .select('id, load_id, body, created_at, sender_id, load:loads(load_number), sender:profiles(full_name)')
-      .eq('channel', 'driver')
-      .order('created_at', { ascending: false })
-      .limit(MAX_HISTORY)
-      .then(({ data }) => {
-        if (!data) return;
-        const entries = data.filter((row) => row.sender_id !== user.id).map(toEntry);
-        setNotifications(entries);
+    Promise.all([
+      supabase
+        .from('load_messages')
+        .select('id, load_id, body, created_at, sender_id, load:loads(load_number), sender:profiles(full_name)')
+        .eq('channel', 'driver')
+        .order('created_at', { ascending: false })
+        .limit(MAX_HISTORY),
+      supabase
+        .from('driver_messages')
+        .select('id, driver_id, body, created_at, sender_id, sender:profiles(full_name)')
+        .order('created_at', { ascending: false })
+        .limit(MAX_HISTORY),
+    ]).then(([loadResult, driverResult]) => {
+      const loadEntries = (loadResult.data ?? [])
+        .filter((row) => row.sender_id !== user.id)
+        .map(toLoadEntry);
+      const driverEntries = (driverResult.data ?? [])
+        .filter((row) => row.sender_id !== user.id)
+        .map(toDriverEntry);
+      const entries = [...loadEntries, ...driverEntries]
+        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+        .slice(0, MAX_HISTORY);
+      setNotifications(entries);
 
-        const lastSeenAt = localStorage.getItem(LAST_SEEN_KEY);
-        setUnreadCount(entries.filter((entry) => !lastSeenAt || entry.createdAt > lastSeenAt).length);
-      });
+      const lastSeenAt = localStorage.getItem(LAST_SEEN_KEY);
+      setUnreadCount(entries.filter((entry) => !lastSeenAt || entry.createdAt > lastSeenAt).length);
+    });
   }, [user]);
 
   useEffect(() => {
-    const unsubscribe = subscribeToInserts(supabase, {
+    function handleNewEntry(entry) {
+      setNotifications((current) => [entry, ...current].slice(0, MAX_HISTORY));
+      setUnreadCount((n) => n + 1);
+
+      sileo.info({
+        title: `New message from ${entry.senderName}`,
+        description: entryDescription(entry),
+        button: { title: 'View', onClick: () => navigate(entryHref(entry)) },
+      });
+    }
+
+    const unsubscribeLoad = subscribeToInserts(supabase, {
       table: 'load_messages',
       filter: 'channel=eq.driver',
       onInsert: async (payload) => {
@@ -69,20 +115,28 @@ export default function NotificationBell() {
           .select('id, load_id, body, created_at, load:loads(load_number), sender:profiles(full_name)')
           .eq('id', payload.new.id)
           .single();
-        if (!data) return;
-
-        const entry = toEntry(data);
-        setNotifications((current) => [entry, ...current].slice(0, MAX_HISTORY));
-        setUnreadCount((n) => n + 1);
-
-        sileo.info({
-          title: `New message from ${entry.senderName}`,
-          description: `Load #${entry.loadNumber}: ${entry.body}`,
-          button: { title: 'View', onClick: () => navigate(`/loads/${entry.loadId}?tab=driver`) },
-        });
+        if (data) handleNewEntry(toLoadEntry(data));
       },
     });
-    return unsubscribe;
+
+    const unsubscribeDriver = subscribeToInserts(supabase, {
+      table: 'driver_messages',
+      onInsert: async (payload) => {
+        if (payload.new.sender_id === user?.id) return;
+
+        const { data } = await supabase
+          .from('driver_messages')
+          .select('id, driver_id, body, created_at, sender:profiles(full_name)')
+          .eq('id', payload.new.id)
+          .single();
+        if (data) handleNewEntry(toDriverEntry(data));
+      },
+    });
+
+    return () => {
+      unsubscribeLoad();
+      unsubscribeDriver();
+    };
   }, [navigate, user]);
 
   useEffect(() => {
@@ -102,7 +156,7 @@ export default function NotificationBell() {
 
   function handleSelect(entry) {
     setOpen(false);
-    navigate(`/loads/${entry.loadId}?tab=driver`);
+    navigate(entryHref(entry));
   }
 
   return (
@@ -132,7 +186,7 @@ export default function NotificationBell() {
             )}
             {notifications.map((entry) => (
               <button
-                key={entry.id}
+                key={`${entry.kind}-${entry.id}`}
                 type="button"
                 onClick={() => handleSelect(entry)}
                 className="flex w-full flex-col gap-0.5 border-b border-border px-4 py-2.5 text-left last:border-0 hover:bg-surface"
@@ -141,9 +195,7 @@ export default function NotificationBell() {
                   <span className="text-sm font-medium text-text">{entry.senderName}</span>
                   <span className="shrink-0 text-xs text-text/50">{formatRelativeTime(entry.createdAt)}</span>
                 </div>
-                <p className="truncate text-xs text-text/60">
-                  Load #{entry.loadNumber}: {entry.body}
-                </p>
+                <p className="truncate text-xs text-text/60">{entryDescription(entry)}</p>
               </button>
             ))}
           </div>

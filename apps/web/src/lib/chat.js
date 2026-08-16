@@ -35,17 +35,17 @@ export async function fetchDriverMessages(supabaseClient, driverId) {
     .from('driver_messages')
     // driver_messages has two FKs to profiles (driver_id, sender_id) --
     // !sender_id disambiguates which one this embed should follow.
-    .select('*, sender:profiles!sender_id(full_name)')
+    .select('*, sender:profiles!sender_id(full_name), load:loads(load_number)')
     .eq('driver_id', driverId)
     .order('created_at', { ascending: true });
   if (error) throw new Error(`driver_messages: ${error.message}`);
   return data;
 }
 
-export async function sendDriverMessage(supabaseClient, { driverId, senderId, body }) {
+export async function sendDriverMessage(supabaseClient, { driverId, senderId, body, loadId = null }) {
   const { error } = await supabaseClient
     .from('driver_messages')
-    .insert({ driver_id: driverId, sender_id: senderId, body });
+    .insert({ driver_id: driverId, sender_id: senderId, body, load_id: loadId });
   if (error) throw new Error(`driver_messages insert: ${error.message}`);
 }
 

@@ -8,10 +8,12 @@ function initials(name) {
   return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?';
 }
 
-// Presentational chat widget shared by TeamChat and Load Detail's messages
-// card. Callers normalize their message shape to { id, body, created_at,
-// authorId, authorName } and pass an onSend(body) handler -- ChatPanel
-// itself doesn't know about team_messages vs load_messages.
+// Presentational chat widget shared by TeamChat, Load Detail's messages
+// card, and Driver Messages. Callers normalize their message shape to
+// { id, body, created_at, authorId, authorName, tag? } and pass an
+// onSend(body) handler -- ChatPanel itself doesn't know about
+// team_messages/load_messages/driver_messages. `tag` is optional (e.g.
+// Driver Messages' "Re: Load #X" for a load-tagged dispatch message).
 export default function ChatPanel({
   messages,
   onSend,
@@ -58,6 +60,11 @@ export default function ChatPanel({
                 <AvatarFallback>{initials(message.authorName)}</AvatarFallback>
               </Avatar>
               <Bubble align={own ? 'end' : 'start'} variant={own ? 'default' : 'muted'}>
+                {message.tag && (
+                  <span className="mb-1 inline-block rounded bg-black/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text/60">
+                    {message.tag}
+                  </span>
+                )}
                 <BubbleContent>{message.body}</BubbleContent>
                 <span className="px-1 text-xs text-text/50">
                   {message.authorName ?? 'Unknown'} · {new Date(message.created_at).toLocaleString()}

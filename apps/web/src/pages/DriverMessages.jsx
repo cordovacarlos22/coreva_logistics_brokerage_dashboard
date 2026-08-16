@@ -65,6 +65,7 @@ export default function DriverMessages() {
     created_at: message.created_at,
     authorId: message.sender_id,
     authorName: message.sender?.full_name,
+    tag: message.load ? `Re: Load #${message.load.load_number}` : undefined,
   }));
 
   const selectedDriver = drivers?.find((driver) => driver.id === selectedDriverId);

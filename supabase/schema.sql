@@ -979,3 +979,17 @@ alter table public.checklist_photos
   add column compliance_reason text,
   add column overridden_at timestamptz,
   add column overridden_by uuid references public.profiles (id);
+
+-- ============================================================================
+-- Driver App Phase 8 -- Load-tagged dispatch messages.
+-- ============================================================================
+
+-- driver_messages is one shared thread per driver, not split by load -- but
+-- a driver raising an issue about their current load still wants dispatch
+-- to know which one without typing it out. Nullable: only messages sent
+-- from within a load's checklist screen carry this; the Chat tab's general
+-- "Message Dispatch" entry point still leaves it null. No RLS change --
+-- this is just extra context on a row a driver can already write per the
+-- existing driver_messages_insert policy, not a new access boundary.
+alter table public.driver_messages
+  add column load_id uuid references public.loads (id);
